@@ -13,7 +13,9 @@
 # Pra Easypanel: configurar serviço como Docker, expor porta 8088.
 # ─────────────────────────────────────────────────────────────────────────────
 
-FROM mcr.microsoft.com/playwright:v1.50.0-jammy
+# IMPORTANTE: a tag da imagem TEM que casar com a versão do playwright no
+# package.json/lock (o Chromium vem embutido). Estão fixados em 1.59.1.
+FROM mcr.microsoft.com/playwright:v1.59.1-jammy
 
 WORKDIR /app
 
