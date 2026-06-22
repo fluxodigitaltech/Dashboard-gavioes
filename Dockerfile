@@ -63,7 +63,7 @@ RUN npm run build
 
 
 # ─── Stage 2: serve ──────────────────────────────────────────────────────────
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.31-alpine AS runtime
 
 # Node runtime pro mini-backend de convites + gettext (envsubst) pro template nginx.
 RUN apk add --no-cache nodejs npm gettext
