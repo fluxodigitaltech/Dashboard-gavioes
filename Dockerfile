@@ -35,6 +35,8 @@ COPY . .
 
 # Vite reads VITE_* from process.env at build time — declare them as ARG so
 # they can be passed via `docker build --build-arg ...` and become ENV.
+# Fonte de dados = scraper (Gaviões não tem API de integração). Baked no bundle.
+ARG VITE_DATA_SOURCE=scraper
 ARG VITE_NOCODB_TOKEN
 ARG VITE_META_ACCESS_TOKEN
 ARG VITE_EVO_TOKEN_ALTINO_ARANTES
@@ -45,7 +47,8 @@ ARG VITE_EVO_TOKEN_JARDINS
 ARG VITE_EVO_TOKEN_BELENZINHO
 ARG VITE_EVO_TOKEN_CAMPESTRE
 
-ENV VITE_NOCODB_TOKEN=$VITE_NOCODB_TOKEN \
+ENV VITE_DATA_SOURCE=$VITE_DATA_SOURCE \
+    VITE_NOCODB_TOKEN=$VITE_NOCODB_TOKEN \
     VITE_META_ACCESS_TOKEN=$VITE_META_ACCESS_TOKEN \
     VITE_EVO_TOKEN_ALTINO_ARANTES=$VITE_EVO_TOKEN_ALTINO_ARANTES \
     VITE_EVO_TOKEN_SAUDE=$VITE_EVO_TOKEN_SAUDE \
@@ -62,12 +65,12 @@ RUN npm run build
 # ─── Stage 2: serve ──────────────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runtime
 
-# Node runtime pro mini-backend de convites por e-mail (server/index.mjs).
-# Roda junto do nginx no mesmo container; nginx faz proxy de /api/ pra ele.
-RUN apk add --no-cache nodejs npm
+# Node runtime pro mini-backend de convites + gettext (envsubst) pro template nginx.
+RUN apk add --no-cache nodejs npm gettext
 
-# Replace default nginx config with our SPA + proxy config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx.conf é um TEMPLATE: ${SCRAPER_UPSTREAM} e ${SCRAPER_TOKEN} são preenchidos
+# por envsubst no boot (valores do Environment do Easypanel). Ver CMD.
+COPY nginx.conf /etc/nginx/nginx.conf.template
 
 # Copy built assets
 COPY --from=build /app/dist /usr/share/nginx/html
@@ -81,7 +84,7 @@ RUN cd /app/server && npm install --omit=dev --no-audit --no-fund
 # domain to this port.
 EXPOSE 80
 
-# Sobe o Node (background, porta 3001) + nginx (foreground). Inline pra evitar
-# problema de CRLF de script .sh vindo do Windows. Se o Node cair, o nginx
-# continua servindo o dashboard — só os convites param.
-CMD ["sh", "-c", "node /app/server/index.mjs & exec nginx -g 'daemon off;'"]
+# Boot: (1) envsubst preenche o nginx.conf com SCRAPER_UPSTREAM/SCRAPER_TOKEN
+# (só essas vars — os $vars do nginx ficam intactos); (2) Node em background
+# (convites, porta 3001); (3) nginx em foreground. Se o Node cair, o nginx segue.
+CMD ["sh", "-c", "envsubst '$SCRAPER_UPSTREAM $SCRAPER_TOKEN' < /etc/nginx/nginx.conf.template > /etc/nginx/conf.d/default.conf && (node /app/server/index.mjs &) && exec nginx -g 'daemon off;'"]
