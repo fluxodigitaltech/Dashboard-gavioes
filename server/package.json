@@ -1,0 +1,14 @@
+{
+  "name": "gavioes-invite-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mini-backend de convites por e-mail (roda junto do nginx no container).",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.16"
+  }
+}

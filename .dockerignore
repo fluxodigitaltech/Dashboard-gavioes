@@ -1,0 +1,46 @@
+# Don't bake secrets or local-only state into the image
+.env
+.env.*
+!.env.example
+
+# Don't ship dev artifacts
+node_modules
+dist
+build
+.cache
+.tmp
+tmp
+coverage
+
+# Source control & CI
+.git
+.gitignore
+.github
+
+# IDE & OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Logs
+*.log
+logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Local dumps & scratch
+dump_member.js
+member_dump.json
+*.bak
+
+# Vercel-specific (we're deploying via Docker)
+.vercel
+vercel.json
+
+# Docs that don't need to be in the image
+README.md
+*.md

@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Puxar Agregadores — EVO</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #F4F7F5; color: #0F172A; padding: 32px 20px 80px;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 4px; color: #141414; }
+    .sub { color: #64748B; font-size: 14px; margin: 0 0 28px; }
+    .card { background: #fff; border: 1px solid #E5EAE7; border-radius: 20px; padding: 24px; box-shadow: 0 4px 20px rgba(0,0,0,.03); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+    label { display: block; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #64748B; margin-bottom: 6px; }
+    input, select {
+      width: 100%; padding: 11px 13px; border: 1px solid #D8E0DB; border-radius: 12px;
+      font-size: 14px; font-weight: 600; color: #0F172A; background: #F8FAFB; outline: none;
+    }
+    input:focus, select:focus { border-color: #141414; background: #fff; }
+    .row-actions { margin-top: 20px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    button {
+      border: none; border-radius: 12px; padding: 12px 22px; font-size: 13px; font-weight: 800;
+      cursor: pointer; transition: opacity .15s;
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-primary { background: #141414; color: #fff; }
+    .btn-ghost { background: #fff; border: 1px solid #D8E0DB; color: #334155; }
+    .chk { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #334155; }
+    .chk input { width: auto; }
+    .status { margin-top: 16px; font-size: 13px; font-weight: 700; color: #475569; min-height: 20px; }
+    .err { color: #DC2626; }
+    .ok { color: #059669; }
+    .stats { display: flex; gap: 24px; flex-wrap: wrap; margin: 24px 0 8px; }
+    .stat { background: #fff; border: 1px solid #E5EAE7; border-radius: 16px; padding: 16px 22px; }
+    .stat .n { font-size: 26px; font-weight: 800; color: #141414; }
+    .stat .l { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #94A3B8; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #94A3B8; padding: 10px 12px; border-bottom: 2px solid #E5EAE7; white-space: nowrap; }
+    td { padding: 10px 12px; border-bottom: 1px solid #F1F5F3; font-weight: 600; vertical-align: top; }
+    tr:hover td { background: #fafafa; }
+    .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; background: #fde7e2; color: #141414; }
+    .scroll { overflow-x: auto; }
+    .hint { font-size: 12px; color: #94A3B8; margin-top: 10px; line-height: 1.5; }
+    .pwd-wrap { position: relative; }
+    .pwd-toggle { position: absolute; right: 10px; top: 32px; background: none; border: none; padding: 4px; font-size: 11px; color: #64748B; cursor: pointer; font-weight: 800; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Puxar Agregadores — EVO</h1>
+  <p class="sub">Busca a base de prospects (oportunidades) da API EVO e isola os membros vindos de agregadores (Gympass/Wellhub, TotalPass, etc.).</p>
+
+  <div class="card">
+    <div class="grid">
+      <div>
+        <label>DNS</label>
+        <input id="dns" value="gavioes" autocomplete="off" />
+      </div>
+      <div class="pwd-wrap">
+        <label>Token</label>
+        <input id="token" type="password" placeholder="cole o token da unidade" autocomplete="off" />
+        <button type="button" class="pwd-toggle" id="togglePwd">ver</button>
+      </div>
+      <div>
+        <label>Filtrar por</label>
+        <select id="dateField">
+          <option value="register">Data de registro</option>
+          <option value="conversion">Data de conversão</option>
+        </select>
+      </div>
+      <div>
+        <label>Data início</label>
+        <input id="start" type="date" />
+      </div>
+      <div>
+        <label>Data fim</label>
+        <input id="end" type="date" />
+      </div>
+    </div>
+
+    <div class="row-actions">
+      <button class="btn-primary" id="run">Puxar agregadores</button>
+      <button class="btn-ghost" id="export" disabled>Exportar CSV</button>
+      <label class="chk"><input type="checkbox" id="onlyAgg" checked /> Mostrar só agregadores</label>
+    </div>
+
+    <div class="status" id="status"></div>
+    <p class="hint">
+      Endpoint: <b>GET /api/v1/prospects</b> · paginado (take=50) · auth Basic(DNS:token).<br>
+      "Agregador" = prospect com <b>gympassId</b> preenchido OU cujo <b>signupType / mktChannel</b> bate com palavras-chave (gympass, wellhub, totalpass, etc.). Edite <code>AGG_KEYWORDS</code> no arquivo pra ajustar.
+    </p>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<script>
+// ─── Config ──────────────────────────────────────────────────────────────────
+const EVO_BASE = "/evo-api"; // proxy do Vite dev → https://evo-integracao-api.w12app.com.br
+const TAKE = 50;             // máximo permitido pelo endpoint
+const THROTTLE_MS = 700;     // mesmo ritmo do app (EVO 429 acima de ~3 req/s)
+const SAFETY_PAGES = 400;    // teto de páginas (400 * 50 = 20k prospects)
+
+// Palavras que identificam um prospect como vindo de agregador.
+const AGG_KEYWORDS = ["gympass", "wellhub", "totalpass", "total pass", "benefit", "flash", "vidalink", "agregador", "convenio", "convênio"];
+
+// Plataforma "bonita" a partir do texto bruto
+function platformOf(p) {
+  if (p.gympassId) return "Gympass / Wellhub";
+  const t = ((p.signupType || "") + " " + (p.mktChannel || "")).toLowerCase();
+  if (t.includes("gympass") || t.includes("wellhub")) return "Gympass / Wellhub";
+  if (t.includes("totalpass") || t.includes("total pass")) return "TotalPass";
+  if (t.includes("benefit")) return "Benefit Club";
+  if (t.includes("flash")) return "Flash Benefícios";
+  if (t.includes("vidalink")) return "Vidalink";
+  return p.signupType || p.mktChannel || "Outro";
+}
+
+function isAggregator(p) {
+  if (p.gympassId && String(p.gympassId).trim() !== "") return true;
+  const t = ((p.signupType || "") + " " + (p.mktChannel || "")).toLowerCase();
+  return AGG_KEYWORDS.some(k => t.includes(k));
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const fullName = p => [p.firstName, p.lastName].filter(Boolean).join(" ") || p.registerName || "—";
+function fmtDate(s) { if (!s) return "—"; const d = new Date(s); return isNaN(d) ? "—" : d.toLocaleDateString("pt-BR"); }
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
+
+let lastRows = []; // pra exportar
+
+// default: mês corrente
+(function initDates() {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth(), 1);
+  const iso = d => d.toISOString().slice(0, 10);
+  $("start").value = iso(first);
+  $("end").value = iso(now);
+})();
+
+$("togglePwd").addEventListener("click", () => {
+  const t = $("token");
+  t.type = t.type === "password" ? "text" : "password";
+  $("togglePwd").textContent = t.type === "password" ? "ver" : "ocultar";
+});
+
+// ─── Fetch ────────────────────────────────────────────────────────────────────
+async function fetchAllProspects(dns, token, field, start, end, onProgress) {
+  const auth = btoa(`${dns}:${token}`);
+  const startISO = `${start}T00:00:00`;
+  const endISO   = `${end}T23:59:59`;
+  const dateParams = field === "conversion"
+    ? `conversionDateStart=${startISO}&conversionDateEnd=${endISO}`
+    : `registerDateStart=${startISO}&registerDateEnd=${endISO}`;
+
+  let skip = 0, all = [], page = 0;
+  while (page < SAFETY_PAGES) {
+    const path = `/api/v1/prospects?${dateParams}&take=${TAKE}&skip=${skip}`;
+    const res = await fetch(`${EVO_BASE}${path}`, {
+      headers: { "Content-Type": "application/json", "Authorization": `Basic ${auth}` },
+    });
+    if (res.status === 429) { await sleep(3000); continue; } // backoff simples
+    if (!res.ok) throw new Error(`EVO ${res.status} — ${await res.text().catch(() => path)}`);
+    const data = await res.json();
+    const arr = Array.isArray(data) ? data : (data.prospects || data.data || data.result || []);
+    all = all.concat(arr);
+    onProgress(all.length, arr.length);
+    if (arr.length < TAKE) break; // última página
+    skip += TAKE;
+    page++;
+    await sleep(THROTTLE_MS);
+  }
+  return all;
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render(prospects) {
+  const aggregators = prospects.filter(isAggregator);
+  const onlyAgg = $("onlyAgg").checked;
+  const rows = onlyAgg ? aggregators : prospects;
+  lastRows = rows;
+
+  // breakdown por plataforma (só agregadores)
+  const byPlat = {};
+  aggregators.forEach(p => { const k = platformOf(p); byPlat[k] = (byPlat[k] || 0) + 1; });
+  const platLines = Object.entries(byPlat).sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${esc(k)}</div></div>`).join("");
+
+  const tbody = rows.map(p => `
+    <tr>
+      <td>${esc(fullName(p))}</td>
+      <td><span class="tag">${esc(platformOf(p))}</span></td>
+      <td>${esc(p.branchName || p.idBranch || "—")}</td>
+      <td>${esc(p.gympassId || "—")}</td>
+      <td>${esc(p.signupType || "—")}</td>
+      <td>${esc(p.mktChannel || "—")}</td>
+      <td>${esc(p.cellphone || "—")}</td>
+      <td>${esc(p.email || "—")}</td>
+      <td>${fmtDate(p.registerDate)}</td>
+      <td>${fmtDate(p.conversionDate)}</td>
+    </tr>`).join("");
+
+  $("results").innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="n">${prospects.length}</div><div class="l">Prospects no período</div></div>
+      <div class="stat"><div class="n">${aggregators.length}</div><div class="l">Via agregadores</div></div>
+      ${platLines}
+    </div>
+    <div class="card" style="margin-top:8px">
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th>Nome</th><th>Plataforma</th><th>Unidade</th><th>GympassID</th>
+            <th>SignupType</th><th>mktChannel</th><th>Telefone</th><th>Email</th><th>Registro</th><th>Conversão</th>
+          </tr></thead>
+          <tbody>${tbody || `<tr><td colspan="10" style="text-align:center;color:#94A3B8;padding:32px">Nenhum registro.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>`;
+  $("export").disabled = rows.length === 0;
+}
+
+// ─── Export CSV ───────────────────────────────────────────────────────────────
+function exportCSV() {
+  const headers = ["Nome","Plataforma","Unidade","GympassID","SignupType","mktChannel","Telefone","Email","Registro","Conversao"];
+  const lines = lastRows.map(p => [
+    fullName(p), platformOf(p), p.branchName || p.idBranch || "", p.gympassId || "",
+    p.signupType || "", p.mktChannel || "", p.cellphone || "", p.email || "",
+    fmtDate(p.registerDate), fmtDate(p.conversionDate),
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
+  const csv = "﻿" + [headers.join(","), ...lines].join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = `agregadores_${$("start").value}_${$("end").value}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ─── Wire ─────────────────────────────────────────────────────────────────────
+let cached = [];
+$("run").addEventListener("click", async () => {
+  const dns = $("dns").value.trim();
+  const token = $("token").value.trim();
+  const field = $("dateField").value;
+  const start = $("start").value, end = $("end").value;
+  if (!token) { $("status").innerHTML = `<span class="err">Cole o token da unidade.</span>`; return; }
+  if (!start || !end) { $("status").innerHTML = `<span class="err">Informe o período.</span>`; return; }
+
+  $("run").disabled = true; $("export").disabled = true;
+  $("status").textContent = "Buscando página 1…";
+  try {
+    cached = await fetchAllProspects(dns, token, field, start, end, (total, lastPage) => {
+      $("status").textContent = `Carregados ${total} prospects… (última página: ${lastPage})`;
+    });
+    $("status").innerHTML = `<span class="ok">Concluído — ${cached.length} prospects no período.</span>`;
+    render(cached);
+  } catch (e) {
+    $("status").innerHTML = `<span class="err">Erro: ${esc(e.message)}</span>`;
+  } finally {
+    $("run").disabled = false;
+  }
+});
+
+$("onlyAgg").addEventListener("change", () => { if (cached.length) render(cached); });
+$("export").addEventListener("click", exportCSV);
+</script>
+</body>
+</html>

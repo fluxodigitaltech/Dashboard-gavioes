@@ -1,0 +1,208 @@
+@import "tailwindcss";
+/* Fonte Manrope carregada via <link preconnect+stylesheet> no index.html
+   (render-blocking + sem preconnect quando era @import aqui → LCP/CLS pior). */
+
+@theme {
+  --font-manrope: "Manrope", sans-serif;
+
+  /* Paleta Academia Gaviões 24h — vermelho/preto */
+  --color-primary: #141414;
+  /* Preto da marca */
+  --color-accent: #fc3000;
+  /* Vermelho Gaviões */
+  --color-background: #FFFFFF;
+  --color-surface: #fafafa;
+
+  --color-primary-foreground: #FFFFFF;
+  --color-foreground: #0F172A;
+  --color-border: #E2E8F0;
+  --color-muted: #64748B;
+
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+
+  /* Z-index scale — usar sempre via classe z-* mapeada (header, modal, etc). */
+  --z-base: 0;
+  --z-dropdown: 50;
+  --z-header: 100;
+  --z-overlay: 150;
+  --z-modal: 200;
+  --z-toast: 300;
+
+  /* Typography scale — semântica, evitar text-[Npx] arbitrário no JSX. */
+  --text-2xs: 10px;       /* eyebrow/uppercase labels */
+  --text-xs: 11px;        /* metadata/sub-comparison */
+  --text-sm: 12px;        /* body small */
+  --text-base: 14px;      /* body */
+  --text-display-sm: 1.75rem;
+  --text-display-md: 2.2rem;
+  --text-display-lg: 2.8rem;
+
+  /* Cores semânticas — usar text-success/danger/warning em vez de emerald/rose/amber direto. */
+  --color-success: #059669;       /* emerald-600 */
+  --color-success-soft: #ecfdf5;  /* emerald-50  */
+  --color-danger: #e11d48;        /* rose-600    */
+  --color-danger-soft: #fff1f2;   /* rose-50     */
+  --color-warning: #d97706;       /* amber-600   */
+  --color-warning-soft: #fffbeb;  /* amber-50    */
+
+  /* ── Card design tokens ────────────────────────────────────────────────
+     Sistema canônico aplicado a TODO card do dashboard (StatsCard,
+     UnitCard, CircularKPI, cards inline). Mudou aqui = mudou em todo lugar. */
+  --radius-card: 1.5rem;                /* radius unificado — meio termo entre 2xl e 3xl */
+  --card-bg: #ffffff;
+  --card-border: rgba(226, 232, 240, 0.7);   /* slate-200/70 */
+  --card-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.03);
+  --card-shadow-hover: 0 4px 12px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.05);
+  --card-padding-base: 1.5rem;          /* p-6 */
+
+  /* Tipografia de card — semântica única em vez de text-[Npx] arbitrário */
+  --card-value-size: 2.25rem;           /* 36px — valor principal */
+  --card-value-size-xl: 2.5rem;         /* 40px — em 2xl screens */
+  --card-eyebrow-size: 11px;            /* label uppercase no header do card */
+  --card-meta-size: 11px;               /* subtítulos / comparativos */
+
+  /* Reserva mínima pra área de footer dos cards (3 linhas de meta).
+     Garante alinhamento visual mesmo quando um card tem 0 e outro tem 3 linhas. */
+  --card-meta-min-height: 3.75rem;
+  /* Reserva mínima pro bloco de metaInfo (label + barra de progresso + falta).
+     Renderizado SEMPRE pra alinhar cards com e sem meta no mesmo grid. */
+  --card-metainfo-min-height: 4.25rem;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-manrope);
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+    /* Remove o delay de 300ms do double-tap em mobile (iOS/Android). */
+    touch-action: manipulation;
+    /* Tap highlight discreto (default cinza do iOS é feio em UIs com accent vermelho). */
+    -webkit-tap-highlight-color: rgba(252, 48, 0, 0.12); /* accent/12 */
+  }
+
+  /* Safe area pra notches em iPhone (X+) — aplica padding no header sticky e
+     em qualquer elemento full-bleed que toque a borda. */
+  .safe-top { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Modais e drawers: contain scroll → não vaza pra body ao chegar no fim. */
+  .scroll-contain {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@layer components {
+  /* Base canônica de todo card do dashboard. Use junto com `card-pad` ou
+     padding custom. Vem com hover lift consistente. */
+  .card-base {
+    background-color: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--card-shadow);
+    transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
+  }
+  .card-base:hover {
+    box-shadow: var(--card-shadow-hover);
+  }
+  .card-interactive:hover {
+    transform: translateY(-2px);
+  }
+  .card-pad {
+    padding: var(--card-padding-base);
+  }
+  .card-eyebrow {
+    font-size: var(--card-eyebrow-size);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(100 116 139); /* slate-500 — contraste AA */
+    line-height: 1.2;
+  }
+  .card-value {
+    font-size: var(--card-value-size);
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.025em;
+    font-variant-numeric: tabular-nums;
+  }
+  @media (min-width: 1536px) {
+    .card-value { font-size: var(--card-value-size-xl); }
+  }
+  .card-meta {
+    font-size: var(--card-meta-size);
+    font-weight: 500;
+    color: rgb(100 116 139); /* slate-500 */
+    line-height: 1.35;
+  }
+  /* Reserva fixa pra área de subtítulos no footer do card. Garante que
+     cards com 0 e cards com 3 linhas de comparativo terminem na mesma altura. */
+  .card-meta-slot {
+    min-height: var(--card-meta-min-height);
+  }
+  /* Reserva fixa pro bloco de metaInfo (barra de progresso + label).
+     Aplicada SEMPRE — vazia em cards sem meta — pra impedir que cards com
+     meta fiquem ~4rem mais altos que os sem meta. */
+  .card-metainfo-slot {
+    min-height: var(--card-metainfo-min-height);
+  }
+
+  .premium-card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--card-shadow);
+    transition: all 300ms ease;
+  }
+
+  .premium-card:hover {
+    @apply -translate-y-1 shadow-md border-accent/30;
+  }
+
+  /* Gradiente da marca Gaviões (preto → vermelho escuro) */
+  .bg-primary-gradient {
+    background: linear-gradient(135deg, #141414 0%, #3a0f06 100%);
+  }
+
+  .nav-active {
+    @apply text-slate-900 relative;
+  }
+
+  .nav-active::after {
+    content: '';
+    @apply absolute bottom-[-22px] left-0 w-full h-[3px] bg-accent rounded-t-full;
+  }
+
+  .map-circle {
+    @apply absolute border border-primary/5 rounded-full pointer-events-none;
+  }
+
+  .mask-fade-bottom {
+    mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+  }
+}
+
+/* ── Barra de loading indeterminada (topo das telas com carga pesada) ── */
+@keyframes gb-loading-slide {
+  0%   { left: -28%; }
+  100% { left: 100%; }
+}
+.gb-loading-bar {
+  position: absolute;
+  top: 0;
+  width: 28%;
+  height: 100%;
+  animation: gb-loading-slide 1.05s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gb-loading-bar { animation-duration: 2.4s; }
+}

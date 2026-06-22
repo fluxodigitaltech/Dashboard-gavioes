@@ -1,0 +1,6 @@
+node_modules
+gavioes-dashboard
+dump_member.js
+swagger_v1.json
+src/swagger2.json
+*.md

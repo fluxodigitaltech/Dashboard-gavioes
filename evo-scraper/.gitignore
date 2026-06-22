@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.local
+
+# Playwright session — contém cookies/auth do EVO. NUNCA commitar.
+session/
+*.session.json
+
+# Discovery output (logs de XHR pra mapear endpoints)
+discovery/
+*.discover.json
+
+# Logs
+logs/
+*.log
+/data/

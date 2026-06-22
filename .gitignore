@@ -1,0 +1,73 @@
+# === Credenciais e segredos ===
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+credentials.json
+secrets.json
+service-account*.json
+
+# === Node.js ===
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnp/
+.pnp.js
+dist/
+build/
+.next/
+.nuxt/
+.cache/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# === Editores e IDEs ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# === Logs ===
+*.log
+logs/
+
+# === Coverage ===
+coverage/
+.nyc_output/
+*.lcov
+
+# === Sistema ===
+.tmp/
+tmp/
+*.bak
+
+# Mensagens temporarias para git commit -F
+.commit-msg.txt
+
+# === Artefatos de QA / Playwright local ===
+.playwright-cli/
+.claude/
+qa-*.png
+qa-*.html
+qa-*.js
+qa-*.pdf
+Relatorio-QA-*.pdf
+public/qa-*.png
+public/qa-*.html
