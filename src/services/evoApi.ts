@@ -1187,10 +1187,11 @@ export async function fetchBranchStats(name: string, force = false): Promise<Bra
 }
 
 export async function fetchAllBranchStats(force = false): Promise<BranchStats[]> {
-  // Fonte SCRAPER (conta web EVO5) — usada quando a franqueadora não libera a API
-  // de integração (Gaviões). Ativa com VITE_DATA_SOURCE=scraper. Mapeia o snapshot
-  // gerencial do serviço evo-scraper pro contrato BranchStats. Ver scraperApi.ts.
-  if (import.meta.env.VITE_DATA_SOURCE === 'scraper') {
+  // Fonte SCRAPER (conta web EVO5) — Gaviões não tem API de integração, então o
+  // scraper é o PADRÃO. Só usa a API de integração se VITE_DATA_SOURCE=api for
+  // setado explicitamente. (Antes exigia ==='scraper', mas o build arg nem sempre
+  // propaga no Easypanel → caía na API e dava 401 em tudo.) Ver scraperApi.ts.
+  if (import.meta.env.VITE_DATA_SOURCE !== 'api') {
     const { fetchScraperBranchStats } = await import('./scraperApi');
     return fetchScraperBranchStats(force);
   }
