@@ -3,7 +3,7 @@ import { Mail, Lock, Eye, ArrowRight, Shield, HelpCircle, LayoutGrid, Users, Act
 import { motion } from 'framer-motion';
 import gbElement from '../assets/gb_element-2.png';
 import gavioesLogotipoNeg from '../assets/gavioes-logotipo.png';
-import { loginWithNocoDB, saveSession, type GbUser } from '../services/nocodbApi';
+import { loginWithNocoDB, changeOwnPassword, saveSession, type GbUser } from '../services/nocodbApi';
 
 interface LoginScreenProps {
     onLogin: (user: GbUser) => void;
@@ -15,6 +15,38 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+
+    // Modo "trocar minha senha" — alternável na própria tela de login.
+    const [mode, setMode] = useState<'login' | 'change'>('login');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [changeSuccess, setChangeSuccess] = useState(false);
+
+    function switchMode(next: 'login' | 'change') {
+        setMode(next);
+        setError('');
+        setChangeSuccess(false);
+        setPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+    }
+
+    async function handleChangePassword(e: React.FormEvent) {
+        e.preventDefault();
+        setError('');
+        if (newPassword.length < 6) { setError('A nova senha precisa de pelo menos 6 caracteres.'); return; }
+        if (newPassword !== confirmPassword) { setError('A nova senha e a confirmação não conferem.'); return; }
+        setLoading(true);
+        try {
+            await changeOwnPassword(email.trim(), password, newPassword);
+            setChangeSuccess(true);
+            setPassword(''); setNewPassword(''); setConfirmPassword('');
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Não foi possível trocar a senha.');
+        } finally {
+            setLoading(false);
+        }
+    }
 
     return (
         <div className="min-h-screen bg-[#F8F9FA] font-manrope selection:bg-accent selection:text-white flex flex-col items-center justify-center relative overflow-hidden">
@@ -100,10 +132,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                             </div>
 
                             <div className="text-center mb-10">
-                                <h2 className="text-[26px] font-black text-primary tracking-tight">Sistema Interno</h2>
-                                <p className="text-slate-400 font-bold text-[13px] uppercase tracking-widest mt-2">Acesso Restrito ao Dashboard</p>
+                                <h2 className="text-[26px] font-black text-primary tracking-tight">{mode === 'change' ? 'Trocar minha senha' : 'Sistema Interno'}</h2>
+                                <p className="text-slate-400 font-bold text-[13px] uppercase tracking-widest mt-2">{mode === 'change' ? 'Informe sua senha atual e a nova' : 'Acesso Restrito ao Dashboard'}</p>
                             </div>
 
+                            {mode === 'login' ? (
                             <form className="space-y-6" onSubmit={async (e) => {
                                 e.preventDefault();
                                 setError('');
@@ -178,9 +211,97 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                     {loading ? 'VERIFICANDO...' : (<>ACESSAR DASHBOARD <ArrowRight size={18} strokeWidth={3} className="group-hover:translate-x-1 transition-transform" /></>)}
                                 </button>
                             </form>
+                            ) : changeSuccess ? (
+                                <div className="text-center py-2">
+                                    <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-50 flex items-center justify-center mb-5">
+                                        <Shield size={26} className="text-emerald-600" />
+                                    </div>
+                                    <h3 className="text-[18px] font-black text-primary mb-2">Senha alterada!</h3>
+                                    <p className="text-slate-400 font-bold text-[13px] mb-7">Já pode entrar com a sua nova senha.</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => switchMode('login')}
+                                        className="w-full h-14 bg-primary text-white rounded-2xl text-[13px] font-black flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all"
+                                    >
+                                        Ir para o login <ArrowRight size={16} strokeWidth={3} />
+                                    </button>
+                                </div>
+                            ) : (
+                            <form className="space-y-5" onSubmit={handleChangePassword}>
+                                <div className="space-y-2">
+                                    <label className="text-[12px] font-black text-primary uppercase tracking-[0.2em] pl-1">Identificação</label>
+                                    <div className="relative">
+                                        <div className="absolute left-6 top-1/2 -translate-y-1/2 text-primary/40"><Mail size={18} strokeWidth={2.5} /></div>
+                                        <input
+                                            type="email" placeholder="seu@gavioes.com.br" value={email}
+                                            onChange={e => setEmail(e.target.value)} required autoComplete="username" inputMode="email"
+                                            className="w-full h-14 pl-14 pr-6 bg-[#F8FAFB] border border-slate-100/50 rounded-2xl text-[14px] font-bold focus:outline-none focus:ring-2 focus:ring-accent/20 focus:bg-white transition-all"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[12px] font-black text-primary uppercase tracking-[0.2em] pl-1">Senha atual</label>
+                                    <div className="relative">
+                                        <div className="absolute left-6 top-1/2 -translate-y-1/2 text-primary/40"><Lock size={18} strokeWidth={2.5} /></div>
+                                        <input
+                                            type={showPassword ? 'text' : 'password'} placeholder="••••••••" value={password}
+                                            onChange={e => setPassword(e.target.value)} required autoComplete="current-password"
+                                            className="w-full h-14 pl-14 pr-14 bg-[#F8FAFB] border border-slate-100/50 rounded-2xl text-[14px] font-bold focus:outline-none focus:ring-2 focus:ring-accent/20 focus:bg-white transition-all"
+                                        />
+                                        <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Esconder senha' : 'Mostrar senha'} className="absolute right-6 top-1/2 -translate-y-1/2 text-primary/40 hover:text-primary transition-colors">
+                                            <Eye size={18} strokeWidth={2.5} aria-hidden="true" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[12px] font-black text-primary uppercase tracking-[0.2em] pl-1">Nova senha</label>
+                                    <div className="relative">
+                                        <div className="absolute left-6 top-1/2 -translate-y-1/2 text-primary/40"><Lock size={18} strokeWidth={2.5} /></div>
+                                        <input
+                                            type={showPassword ? 'text' : 'password'} placeholder="mínimo 6 caracteres" value={newPassword}
+                                            onChange={e => setNewPassword(e.target.value)} required autoComplete="new-password"
+                                            className="w-full h-14 pl-14 pr-6 bg-[#F8FAFB] border border-slate-100/50 rounded-2xl text-[14px] font-bold focus:outline-none focus:ring-2 focus:ring-accent/20 focus:bg-white transition-all"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[12px] font-black text-primary uppercase tracking-[0.2em] pl-1">Confirmar nova senha</label>
+                                    <div className="relative">
+                                        <div className="absolute left-6 top-1/2 -translate-y-1/2 text-primary/40"><Lock size={18} strokeWidth={2.5} /></div>
+                                        <input
+                                            type={showPassword ? 'text' : 'password'} placeholder="repita a nova senha" value={confirmPassword}
+                                            onChange={e => setConfirmPassword(e.target.value)} required autoComplete="new-password"
+                                            className="w-full h-14 pl-14 pr-6 bg-[#F8FAFB] border border-slate-100/50 rounded-2xl text-[14px] font-bold focus:outline-none focus:ring-2 focus:ring-accent/20 focus:bg-white transition-all"
+                                        />
+                                    </div>
+                                </div>
+
+                                {error && (
+                                    <div className="px-5 py-3 bg-rose-50 border border-rose-100 rounded-2xl text-[13px] font-bold text-rose-600">
+                                        {error}
+                                    </div>
+                                )}
+
+                                <button
+                                    type="submit" disabled={loading}
+                                    className="w-full h-16 bg-primary text-white rounded-2xl text-[14px] font-black flex items-center justify-center gap-3 shadow-[0_15px_30px_-5px_rgba(15,60,35,0.3)] hover:scale-[1.02] active:scale-95 transition-all group disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
+                                >
+                                    {loading ? 'SALVANDO...' : (<>TROCAR SENHA <ArrowRight size={18} strokeWidth={3} className="group-hover:translate-x-1 transition-transform" /></>)}
+                                </button>
+                            </form>
+                            )}
 
                             <div className="mt-12 pt-10 border-t border-slate-50 text-center">
-                                <p className="text-slate-400 text-[12px] font-bold italic">Não tem permissão? Solicite seu acesso com o time interno</p>
+                                {mode === 'login' ? (
+                                    <button type="button" onClick={() => switchMode('change')} className="text-accent text-[12px] font-black uppercase tracking-widest hover:underline">
+                                        Trocar minha senha
+                                    </button>
+                                ) : (
+                                    <button type="button" onClick={() => switchMode('login')} className="text-primary text-[12px] font-black uppercase tracking-widest hover:underline">
+                                        ← Voltar para o login
+                                    </button>
+                                )}
+                                <p className="text-slate-400 text-[12px] font-bold italic mt-4">Não tem permissão? Solicite seu acesso com o time interno</p>
                             </div>
                         </div>
 

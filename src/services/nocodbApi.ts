@@ -424,6 +424,17 @@ export async function loginWithNocoDB(email: string, password: string): Promise<
 }
 
 /**
+ * Troca de senha self-service (sem precisar de admin nem do fluxo de convite).
+ * Valida a senha ATUAL fazendo um login real e, se passar, grava o novo hash.
+ * Lança se a senha atual estiver errada/conta inativa.
+ */
+export async function changeOwnPassword(email: string, currentPassword: string, newPassword: string): Promise<void> {
+  const user = await loginWithNocoDB(email, currentPassword); // valida identidade (lança se inválida)
+  const newHash = await sha256(newPassword);
+  await nocoPatch(TABLES.users, { Id: user.Id, password_hash: newHash });
+}
+
+/**
  * Revalida o usuário corrente direto no NocoDB (por email, sem senha). Usado no
  * load do app pra atualizar permissões/preferências SEM exigir logout+login —
  * quando o admin muda um toggle, o usuário só precisa recarregar a página.
