@@ -8,7 +8,11 @@ import { localYMD } from '../lib/date';
 const NOCO_BASE = 'https://outros-sistemas-nocodb.r3k7br.easypanel.host/api/v2';
 // SECURITY NOTE: VITE_* values are bundled into the public JS — readable by any user via DevTools.
 // This is a stopgap until the backend proxy is implemented. Token must be rotated after public exposure.
-const NOCO_TOKEN = import.meta.env.VITE_NOCODB_TOKEN;
+// ⚠️ Fallback hardcoded: o Easypanel NÃO propaga env vars como build args do Docker
+// (mesmo problema do VITE_DATA_SOURCE no commit a83fc48), então VITE_NOCODB_TOKEN
+// chega vazio no build e o login dá 401. Como o token já é público no bundle por
+// design, embutir o default aqui garante o build. ROTACIONAR e atualizar este valor.
+const NOCO_TOKEN = import.meta.env.VITE_NOCODB_TOKEN || 'gV3tJ7cm7o_wep9gLmQFe1c2SjhMeDfNok_4IFfK';
 
 const TABLES = {
   users:       'm5gvxov7n0eah6o',
