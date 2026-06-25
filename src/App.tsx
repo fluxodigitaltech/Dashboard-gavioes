@@ -138,21 +138,11 @@ function BlockedScreen({ pageName }: { pageName: string }) {
   );
 }
 
-// ⚠️ BYPASS TEMPORÁRIO DE LOGIN — REMOVER ANTES DE SUBIR PRA PRODUÇÃO.
-// Injeta um admin falso quando não há sessão, pulando a tela de login.
-const DEV_LOGIN_BYPASS = true;
-const DEV_FAKE_ADMIN: GbUser = {
-  Id: 0,
-  email: 'dev@local',
-  name: 'Dev (bypass)',
-  role: 'admin',
-};
-
 function App() {
   // Lazy init lê sessão de localStorage uma vez no mount — evita flash de
   // tela de login pra usuários já logados e remove setState em useEffect.
-  const [currentUser,  setCurrentUser]  = useState<GbUser | null>(() => getSession() ?? (DEV_LOGIN_BYPASS ? DEV_FAKE_ADMIN : null));
-  const [isLoggedIn,   setIsLoggedIn]   = useState<boolean>(() => !!getSession() || DEV_LOGIN_BYPASS);
+  const [currentUser,  setCurrentUser]  = useState<GbUser | null>(() => getSession());
+  const [isLoggedIn,   setIsLoggedIn]   = useState<boolean>(() => !!getSession());
   const [currentPage,  setCurrentPage]  = useState<Page>('dashboard');
   const [data,         setData]         = useState<DashboardData | null>(null);
   const [isLoading,    setIsLoading]    = useState(false);

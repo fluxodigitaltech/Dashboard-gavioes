@@ -1,15 +1,17 @@
 // NocoDB Integration Service
-// Base: https://app.nocodb.com | Project: p3wsy6twa4cp83k
+// Base: https://outros-sistemas-nocodb.r3k7br.easypanel.host | Project: pq2izu4dn5chv9s
+// (login/usuários ficam neste NocoDB self-hosted — separado da fonte de dados,
+//  que vem do scraper EVO. Migrado do app.nocodb.com em jun/2026.)
 
 import { localYMD } from '../lib/date';
 
-const NOCO_BASE = 'https://app.nocodb.com/api/v2';
+const NOCO_BASE = 'https://outros-sistemas-nocodb.r3k7br.easypanel.host/api/v2';
 // SECURITY NOTE: VITE_* values are bundled into the public JS — readable by any user via DevTools.
 // This is a stopgap until the backend proxy is implemented. Token must be rotated after public exposure.
 const NOCO_TOKEN = import.meta.env.VITE_NOCODB_TOKEN;
 
 const TABLES = {
-  users:       'mkq4uec7wcr07vx',
+  users:       'm5gvxov7n0eah6o',
   evoSnapshot: 'mz3j6q155ow62wg',
   kpis:        'm0e4fmdvti599he',
   relatorios:  'mz64de7m3jrw9k3',
