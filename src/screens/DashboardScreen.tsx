@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import gbElement from '../assets/gb_element-2.png';
 import {
   Users,
-  TrendingUp,
+  TrendingUp, DollarSign,
   Download,
   Filter,
   RefreshCw,
@@ -57,6 +57,7 @@ const PANEL_CARDS = [
   { id: 'ativos',         label: 'Ativos' },
   { id: 'adimplentes',    label: 'Adimplentes' },
   { id: 'faturamento',    label: 'Faturamento Estimado' },
+  { id: 'faturamento-real', label: 'Faturamento Real Mês' },
   { id: 'vendas-qtd',     label: 'Vendas (Qtd)' },
   { id: 'vendas-valor',   label: 'Vendas (R$)' },
   { id: 'inadimplencia',  label: '% Inadimplência' },
@@ -585,7 +586,16 @@ export function DashboardScreen({ data, isLoading, onNavigate, currentUser }: Pr
           const ativos = isHistMode ? (histAgg?.active_members ?? 0) : (isAllUnits ? (data?.totalActiveMembers ?? 0) : filteredActive);
           const adimp = isHistMode ? (histAgg?.adimplentes ?? 0) : (isAllUnits ? (data?.totalAdimplentesMembers ?? 0) : filteredUnits.reduce((s, u) => s + (u.adimplentesMembers ?? 0), 0));
           const fatTotal = isHistMode ? (histAgg?.faturamento_adimplentes ?? 0) : (isAllUnits ? (data?.totalFaturamentoAdimplentes ?? 0) : filteredUnits.reduce((s, u) => s + (u.faturamentoAdimplentes ?? 0), 0));
-          const ticketMedio = adimp > 0 ? fatTotal / adimp : 0;
+          // Faturamento no modo SCRAPER (Gaviões): ESTIMADO = Total da recorrência,
+          // REAL = Pago (igual à tela Financeiro). No modo API, faturamentoAdimplentes
+          // já é o estimado, então mantém fatTotal.
+          const scraperFatUnits = isAllUnits ? (data?.units ?? []) : filteredUnits;
+          const isScraperFat = scraperFatUnits.some(u => u.faturamentoTotalMes != null);
+          const fatEstimado = (!isHistMode && isScraperFat)
+            ? scraperFatUnits.reduce((s, u) => s + (u.faturamentoTotalMes ?? 0), 0)
+            : fatTotal;
+          const fatReal = scraperFatUnits.reduce((s, u) => s + (u.faturamentoPagoMes ?? 0), 0);
+          const ticketEstimado = adimp > 0 ? fatEstimado / adimp : 0;
           // Vendas: usa range customizado se ativo (filtro de data), senão default mês corrente.
           // Range customizado: SEMPRE soma por activeUnitNames (= unidades permitidas
           // no modo "Todas", ou a seleção). Nunca usa o total global da API de range,
@@ -776,14 +786,24 @@ export function DashboardScreen({ data, isLoading, onNavigate, currentUser }: Pr
               <StatsCard
                 title="Faturamento Estimado"
                 info="Receita mensal estimada: soma dos valores de contrato dos alunos ativos."
-                value={histMissing ? '—' : (data ? formatCompactBRL(fatTotal) : '—')}
-                fullValue={histMissing ? undefined : (data ? formatBRL(fatTotal) : undefined)}
-                comparison={isHistMode ? histLabel : (ticketMedio > 0 ? `Ticket ${formatCompactBRL(ticketMedio)}` : 'Soma ValorContrato')}
+                value={histMissing ? '—' : (data ? formatCompactBRL(fatEstimado) : '—')}
+                fullValue={histMissing ? undefined : (data ? formatBRL(fatEstimado) : undefined)}
+                comparison={isHistMode ? histLabel : (ticketEstimado > 0 ? `Ticket ${formatCompactBRL(ticketEstimado)}` : 'Soma ValorContrato')}
                 subComparison={fatCmp.mes}
                 subComparison2={fatCmp.ano}
                 metaInfo={fatMeta}
                 sparkline={isHistMode ? undefined : spark(sparkSeries.faturamento, '#141414')}
                 icon={TrendingUp} color="primary" valueColorClass="text-primary" isLoading={isLoading}
+              />
+            ),
+            'faturamento-real': () => (
+              <StatsCard
+                title="Faturamento Real Mês"
+                info="Faturamento efetivamente pago no mês (Cobranças › Recorrência, card Pago)."
+                value={(isHistMode || !data) ? '—' : formatCompactBRL(fatReal)}
+                fullValue={!isHistMode && fatReal > 0 ? formatBRL(fatReal) : undefined}
+                comparison="Pago no mês · Cobranças › Recorrência"
+                icon={DollarSign} color="primary" valueColorClass="text-emerald-600" isLoading={isLoading}
               />
             ),
             'vendas-qtd': () => (
@@ -945,6 +965,8 @@ export function DashboardScreen({ data, isLoading, onNavigate, currentUser }: Pr
           // não dá pra reativar via edit-layout — é regra de acesso).
           const visibleOrder = cardOrder.filter(id => {
             if (id === 'faturamento' && !canSeeFinanceiro) return false;
+            // "Faturamento Real Mês" só faz sentido no modo scraper (Gaviões) — esconde no resto.
+            if (id === 'faturamento-real' && (!canSeeFinanceiro || !isScraperFat)) return false;
             if (id === 'vendas-valor' && !canSeeVendasValorCard) return false;
             if (id === 'conv-aula-exp' && !canSeeComercial) return false;
             if (id === 'taxa-ocupacao' && !canSeeTaxaOcupacaoCard) return false;
