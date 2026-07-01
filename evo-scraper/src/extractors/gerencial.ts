@@ -6,7 +6,7 @@
 //   - host evo-abc-api (dashboards/*):  data=MM-DD-YYYY
 //   - host evo-abc-api-gerencial:        dataInicio/dataFim = Y-M-D (sem zero à esquerda)
 import type { EvoClient } from '../evoClient.js';
-import { extractVendas } from './vendas.js';
+import { extractVendas, type PlanoBase } from './vendas.js';
 import { logger } from '../lib/logger.js';
 
 const API = 'https://evo-abc-api.w12app.com.br';
@@ -89,6 +89,7 @@ export interface GerencialSnapshot {
   vendasQtd: number | null;                     // qtd de vendas (Total)
   vendasValorMesAnterior: number | null;
   vendasQtdMesAnterior: number | null;
+  planosBase: PlanoBase[];                       // base ativa por plano (Termômetro de Planos)
   erros: string[];
   raw: Record<string, unknown>; // payloads crus pra auditoria/reprocessamento
 }
@@ -194,6 +195,7 @@ export async function extractGerencial(client: EvoClient, ref = new Date()): Pro
     vendasQtd: vendas?.qtdMes ?? null,
     vendasValorMesAnterior: vendas?.valorMesAnterior ?? null,
     vendasQtdMesAnterior: vendas?.qtdMesAnterior ?? null,
+    planosBase: vendas?.planosBase ?? [],
     erros,
     raw,
   };

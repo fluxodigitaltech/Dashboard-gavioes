@@ -1620,6 +1620,12 @@ async function fetchPlanBreakdownForBranch(token: string, month: string): Promis
  * permitidas (respeita a matriz Página×Unidade do usuário).
  */
 export async function fetchPlansBreakdown(month: string, unitNames?: string[]): Promise<BranchPlanBreakdown[]> {
+  // Gaviões não tem API de integração → base por plano vem do SCRAPER (evo3
+  // Gerencial › Contratos). Só usa a API se VITE_DATA_SOURCE=api explícito.
+  if (import.meta.env.VITE_DATA_SOURCE !== 'api') {
+    const { fetchScraperPlansBreakdown } = await import('./scraperApi');
+    return fetchScraperPlansBreakdown(month);
+  }
   const names = (unitNames && unitNames.length ? unitNames : Object.keys(UNITS)).filter(n => UNITS[n]);
   return Promise.all(names.map(async (name) => {
     const cacheKey = `gb_plans_breakdown_${name}_${month}`;

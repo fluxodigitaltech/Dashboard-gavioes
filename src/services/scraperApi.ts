@@ -6,7 +6,7 @@
 // O scraper roda separado (pasta evo-scraper/, `npm run dev`, porta 8088).
 // Em dev, o Vite faz proxy de /scraper → http://localhost:8088 injetando o
 // Authorization: Bearer (token NÃO vai pro bundle). Ver vite.config.ts.
-import type { BranchStats } from './evoApi';
+import type { BranchStats, BranchPlanBreakdown } from './evoApi';
 
 // Base do scraper atrás do proxy. Em prod, configure o mesmo path no nginx.
 const BASE = (import.meta.env.VITE_SCRAPER_BASE as string | undefined)?.replace(/\/$/, '') || '/scraper';
@@ -38,6 +38,7 @@ interface ScraperSnapshot {
   vendasQtd: number | null;
   vendasValorMesAnterior: number | null;
   vendasQtdMesAnterior: number | null;
+  planosBase?: { plano: string; qtde: number }[];   // base ativa por plano (Termômetro)
   erros: string[];
 }
 
@@ -144,4 +145,29 @@ export async function fetchScraperBranchStats(force = false): Promise<BranchStat
     else throw new Error('scraper sem dados após sync');
   }
   return snap ? [toBranchStats(snap)] : [];
+}
+
+/**
+ * Base ativa por plano (Termômetro de Planos) via SCRAPER. O snapshot traz a base
+ * ATUAL agrupada por plano (planosBase, do Gerencial › Contratos do evo3). Não há
+ * histórico por plano no scraper → só o mês corrente; meses passados = vazio.
+ * O scraper não separa novo/antigo/valor → total=qtde, antigo=qtde, novo/valor=0.
+ */
+export async function fetchScraperPlansBreakdown(month: string): Promise<BranchPlanBreakdown[]> {
+  const now = new Date();
+  const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  if (month < cur) return []; // sem base histórica por plano no scraper
+
+  let snap: ScraperSnapshot | null = null;
+  try { snap = await getJson<ScraperSnapshot>('/data'); }
+  catch { try { await runSync(); snap = await getJson<ScraperSnapshot>('/data'); } catch { return []; } }
+
+  const base = snap?.planosBase ?? [];
+  if (!base.length) return [];
+  const label = BRANCH_LABELS[snap!.branchId] ?? { name: `Filial ${snap!.branchId}`, location: '' };
+  const plans = base
+    .map(p => ({ plano: p.plano, total: p.qtde, novo: 0, antigo: p.qtde, valor: 0 }))
+    .sort((a, b) => b.total - a.total);
+  const totalAtivos = plans.reduce((s, p) => s + p.total, 0);
+  return [{ unitName: label.name, totalAtivos, plans }];
 }
