@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { MonthCalendarPopover } from '../components/MonthCalendarPopover';
-import { currentYM } from '../lib/date';
+import { DateFilterBar } from '../components/DateFilterBar';
+import { localYMD } from '../lib/date';
 import { motion } from 'framer-motion';
 import {
   TrendingUp, MousePointer2, Eye,
-  DollarSign, RefreshCw, AlertCircle, BarChart3, Calendar,
+  DollarSign, RefreshCw, AlertCircle, BarChart3,
   Trophy, Target, Search, X, Users, ArrowRight, Award,
   type LucideIcon,
 } from 'lucide-react';
@@ -187,45 +187,22 @@ export function CampanhasScreen({ data }: Props) {
 
         <div className="flex flex-col gap-3 md:items-end">
           {/* Filtro de data */}
-          <div className="order-2 flex items-center gap-2 px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[11px] font-black text-slate-500 w-fit">
-            <Calendar size={14} className="text-primary shrink-0" />
-            <MonthCalendarPopover
-              month={(dateTo || currentYM()).slice(0, 7)}
-              onPick={ym => {
-                const [y, m] = ym.split('-').map(Number);
-                const last = new Date(y, m, 0).getDate();
-                const now = new Date();
-                const from = `${ym}-01`;
-                const to = ym === currentYM()
-                  ? `${ym}-${String(now.getDate()).padStart(2, '0')}`
-                  : `${ym}-${String(last).padStart(2, '0')}`;
-                setDateFrom(from);
-                setDateTo(to);
-                if (selectedAccount) loadCampaigns(selectedAccount, from, to);
+          <div className="order-2 w-fit">
+            <DateFilterBar
+              value={{ from: dateFrom || (() => { const d = new Date(); d.setDate(d.getDate() - 29); return localYMD(d); })(), to: dateTo || localYMD() }}
+              onChange={r => {
+                setDateFrom(r.from);
+                setDateTo(r.to);
+                if (selectedAccount) loadCampaigns(selectedAccount, r.from, r.to);
               }}
-              buttonTitle="Escolher um mês inteiro no calendário"
-              buttonClassName="px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              Mês
-            </MonthCalendarPopover>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={e => {
-                setDateFrom(e.target.value);
-                if (selectedAccount && e.target.value && dateTo) loadCampaigns(selectedAccount, e.target.value, dateTo);
+              maxDate={localYMD()}
+              isCurrent={!dateFrom && !dateTo}
+              onReset={() => {
+                setDateFrom('');
+                setDateTo('');
+                if (selectedAccount) loadCampaigns(selectedAccount, '', '');
               }}
-              className="bg-transparent text-[11px] font-black text-primary focus:outline-none w-[110px] cursor-pointer"
-            />
-            <span className="text-slate-300">→</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={e => {
-                setDateTo(e.target.value);
-                if (selectedAccount && dateFrom && e.target.value) loadCampaigns(selectedAccount, dateFrom, e.target.value);
-              }}
-              className="bg-transparent text-[11px] font-black text-primary focus:outline-none w-[110px] cursor-pointer"
+              legend="Vazio = últimos 30 dias"
             />
           </div>
 
