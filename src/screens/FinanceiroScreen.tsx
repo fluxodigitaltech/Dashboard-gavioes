@@ -242,9 +242,6 @@ export function FinanceiroScreen({ data, isLoading }: Props) {
       : [];
   const recTotalAmount  = filteredPerUnit.reduce((s, u) => s + u.amount,            0);
   const recTotalLanc    = filteredPerUnit.reduce((s, u) => s + u.rows,              0);
-  const recMulta        = filteredPerUnit.reduce((s, u) => s + u.multaCancelamento, 0);
-  const recAvulso       = filteredPerUnit.reduce((s, u) => s + u.avulso,            0);
-  const recManutencao   = filteredPerUnit.reduce((s, u) => s + u.manutencaoAnual,   0);
 
   // ── Cruzamento member × receivables (filtrado se unidade ≠ Todas) ──
   // Regra (definida pelo user 18/05/2026): IdCliente do member ∩ IdCliente do
@@ -285,12 +282,6 @@ export function FinanceiroScreen({ data, isLoading }: Props) {
   const pagosColorText =
     isScraperPagos ? 'text-emerald-600' : pctPagos >= 80 ? 'text-emerald-600' : pctPagos >= 50 ? 'text-amber-600' : 'text-rose-600';
 
-  // Total bruto de planos (pra mensagem de empty state se nenhum tiver preço).
-  // Filtrado pelas allowed_units do user — viewer não vê quantos planos as
-  // outras lojas têm.
-  const totalRawPlans = (ticketData?.perBranch ?? [])
-    .filter(b => allowedUnitNames.has(b.unitName))
-    .reduce((s, b) => s + b.plans.length, 0);
 
   // ── Agrupa planos por NOME (cross-unidades) — respeita o filtro de unidade ──
   // Cada grupo: nome do plano, preço médio, lista de unidades que oferecem.
@@ -307,24 +298,6 @@ export function FinanceiroScreen({ data, isLoading }: Props) {
   const visibleAvgTicket  = planosVisiveisValues.length > 0
     ? Math.round(planosVisiveisValues.reduce((s, v) => s + v, 0) / planosVisiveisValues.length)
     : 0;
-  type PlanGroup = { name: string; avgValue: number; minValue: number; maxValue: number; unitCount: number; units: string[]; pricedCount: number };
-  const planGroupsMap = new Map<string, { values: number[]; units: Set<string> }>();
-  for (const p of planosFiltrados) {
-    const key = (p.name ?? 'Sem nome').trim();
-    if (!planGroupsMap.has(key)) planGroupsMap.set(key, { values: [], units: new Set() });
-    const g = planGroupsMap.get(key)!;
-    if (p.value > 0) g.values.push(p.value);
-    g.units.add(p.unitName);
-  }
-  const planGroups: PlanGroup[] = Array.from(planGroupsMap.entries()).map(([name, g]) => ({
-    name,
-    avgValue: g.values.length > 0 ? g.values.reduce((s, v) => s + v, 0) / g.values.length : 0,
-    minValue: g.values.length > 0 ? Math.min(...g.values) : 0,
-    maxValue: g.values.length > 0 ? Math.max(...g.values) : 0,
-    unitCount: g.units.size,
-    units: Array.from(g.units),
-    pricedCount: g.values.length,
-  })).sort((a, b) => b.avgValue - a.avgValue);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-10">
@@ -538,171 +511,8 @@ export function FinanceiroScreen({ data, isLoading }: Props) {
             />
           );
         })()}
-        {(() => {
-          const lines = fmtComparativosLines(
-            recMulta,
-            recPrev?.multa_cancelamento ?? 0,
-            recYearAgo?.multa_cancelamento ?? 0,
-            !!recPrev?.hasData,
-            !!recYearAgo?.hasData
-          );
-          return (
-            <StatsCard
-              title="Multa de Cancelamento"
-              value={receivablesLoading ? '—' : receivables ? `R$ ${recMulta.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
-              comparison="Soma do tipo 'Multa de Cancelamento' (receivable)"
-              subComparison={lines.mes}
-              subComparison2={lines.ano}
-              icon={Zap}
-              color="rose"
-              valueColorClass="text-rose-600"
-              isLoading={receivablesLoading}
-            />
-          );
-        })()}
-        {(() => {
-          const lines = fmtComparativosLines(
-            recManutencao,
-            recPrev?.manutencao_anual ?? 0,
-            recYearAgo?.manutencao_anual ?? 0,
-            !!recPrev?.hasData,
-            !!recYearAgo?.hasData
-          );
-          return (
-            <StatsCard
-              title="Manutenção Anual"
-              value={receivablesLoading ? '—' : receivables ? `R$ ${recManutencao.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
-              comparison="Soma da coluna Valor onde Descrição = 'Manutenção Anual'"
-              subComparison={lines.mes}
-              subComparison2={lines.ano}
-              icon={DollarSign}
-              color="primary"
-              valueColorClass="text-primary"
-              isLoading={receivablesLoading}
-            />
-          );
-        })()}
-        {(() => {
-          const lines = fmtComparativosLines(
-            recAvulso,
-            recPrev?.avulso ?? 0,
-            recYearAgo?.avulso ?? 0,
-            !!recPrev?.hasData,
-            !!recYearAgo?.hasData
-          );
-          return (
-            <StatsCard
-              title="Avulso"
-              value={receivablesLoading ? '—' : receivables ? `R$ ${recAvulso.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
-              comparison="Soma do tipo 'Avulso' (receivable)"
-              subComparison={lines.mes}
-              subComparison2={lines.ano}
-              icon={DollarSign}
-              color="secondary"
-              valueColorClass="text-indigo-600"
-              isLoading={receivablesLoading}
-            />
-          );
-        })()}
       </div>
 
-      {/* ── Planos por Tipo — agrupa por nome do plano, reage ao filtro de unidade ── */}
-      <motion.div
-        initial={{ y: 24, opacity: 0 }}
-        whileInView={{ y: 0, opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.5 }}
-        className="mb-16"
-      >
-        <div className="flex items-center justify-between mb-8 border-l-[6px] border-l-accent pl-5">
-          <div>
-            <h2 className="text-[1.8rem] font-black text-[#1E293B] tracking-tight">
-              Planos por Tipo
-            </h2>
-            <p className="text-slate-400 text-[13px] font-semibold mt-1">
-              {ticketLoading
-                ? 'Carregando planos da EVO…'
-                : planGroups.length > 0
-                  ? `${planGroups.length} ${planGroups.length === 1 ? 'tipo de plano' : 'tipos de plano'}${isAll ? '' : ` em ${unitFilter}`} · ticket médio R$ ${visibleAvgTicket.toLocaleString('pt-BR')}`
-                  : 'Nenhum plano encontrado'
-              }
-            </p>
-          </div>
-          <button
-            onClick={() => loadTickets(true)}
-            disabled={ticketLoading}
-            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-100 rounded-2xl text-[11px] font-black text-slate-500 uppercase tracking-widest hover:bg-primary hover:text-white transition-all disabled:opacity-40 shadow-sm"
-          >
-            <RefreshCw size={13} className={ticketLoading ? 'animate-spin' : ''} />
-            {ticketLoading ? 'Carregando…' : 'Forçar Atualização'}
-          </button>
-        </div>
-
-        {ticketLoading && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[1, 2, 3, 4, 5, 6].map(i => (
-              <div key={i} className="h-32 rounded-[1.8rem] bg-slate-100 animate-pulse" />
-            ))}
-          </div>
-        )}
-
-        {!ticketLoading && planGroups.length === 0 && (
-          <div className="py-16 text-center bg-white rounded-[2.5rem] border border-slate-100">
-            <BarChart2 size={36} className="mx-auto text-slate-200 mb-4" />
-            <p className="text-slate-400 font-bold">Nenhum plano encontrado{!isAll ? ` em ${unitFilter}` : ''}</p>
-            <p className="text-slate-300 text-[13px] mt-2">
-              {totalRawPlans > 0
-                ? `${totalRawPlans} planos brutos · talvez sem preço cadastrado`
-                : 'Verifique o console — clique em "Forçar Atualização"'}
-            </p>
-          </div>
-        )}
-
-        {!ticketLoading && planGroups.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {planGroups.map(g => (
-              <div
-                key={g.name}
-                className="bg-white rounded-[1.8rem] border border-slate-100 p-5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.05)] hover:border-accent/30 transition-all"
-              >
-                <p className="font-black text-[#0F172A] text-[15px] leading-tight mb-3 line-clamp-2 min-h-[2.5rem]">
-                  {g.name}
-                </p>
-
-                {g.avgValue > 0 ? (
-                  <p className="text-[1.6rem] font-black text-primary tracking-tighter leading-none">
-                    R$ {g.avgValue.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                  </p>
-                ) : (
-                  <p className="text-[1.2rem] font-black text-slate-300 tracking-tighter leading-none">
-                    Sem preço
-                  </p>
-                )}
-
-                {g.minValue !== g.maxValue && g.avgValue > 0 && (
-                  <p className="text-[11px] font-bold text-slate-400 mt-1.5">
-                    R$ {g.minValue.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} – R$ {g.maxValue.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                  </p>
-                )}
-
-                <div className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                    {isAll
-                      ? `${g.unitCount} ${g.unitCount === 1 ? 'unidade' : 'unidades'}`
-                      : unitFilter
-                    }
-                  </span>
-                  {g.pricedCount > 0 && (
-                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                      {g.pricedCount} c/ preço
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </motion.div>
 
       {/* ── Faturamento por Unidade — vem do /receivables/summary-excel, ordenado desc ── */}
       {(receivablesLoading || (receivables && filteredPerUnit.length > 0)) && (
