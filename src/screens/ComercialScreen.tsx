@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { MonthCalendarPopover } from '../components/MonthCalendarPopover';
+import { DateFilterBar } from '../components/DateFilterBar';
 import { LoadingBar } from '../components/ui/LoadingBar';
 import { motion } from 'framer-motion';
 import {
@@ -19,7 +19,6 @@ import {
   type ComercialExpStatus,
 } from '../services/nocodbApi';
 import {
-  fetchEvoComercialAuto,
   fetchBranchEnrollmentsSingle,
   hasComercialCache,
   type ComercialAutoData,
@@ -181,29 +180,24 @@ export function ComercialScreen({ data }: Props) {
     setTimeout(poll, 1500);
   };
 
-  const buildRows = useCallback((existingByUnit: Record<string, ComercialDiarioRow>, evo: ComercialAutoData | null): Record<string, ComercialDiarioRow> => {
+  // preferEvo=true (modo período): os campos ◇EVO (agendados/compareceram/faltaram)
+  // vêm do SCRAPER e GANHAM do manual — pra bater igualzinho a tela do EVO. No dia
+  // único (editável) mantém o manual||evo de antes. reagendados/fecharam: a EVO não
+  // expõe → seguem manuais (CENTRAL).
+  const buildRows = useCallback((existingByUnit: Record<string, ComercialDiarioRow>, evo: ComercialAutoData | null, preferEvo = false): Record<string, ComercialDiarioRow> => {
     const map: Record<string, ComercialDiarioRow> = {};
+    const pick = (manual: number | undefined, evoVal: number | undefined) =>
+      preferEvo ? (evoVal ?? manual ?? 0) : ((manual || 0) || (evoVal ?? 0));
     for (const u of allowedUnits) {
       const existing = existingByUnit[u];
-      if (existing) {
-        map[u] = {
-          ...existing,
-          agendados:    existing.agendados    || (evo?.agendados[u]    ?? 0),
-          compareceram: existing.compareceram || (evo?.compareceram[u] ?? 0),
-          faltaram:     existing.faltaram     || (evo?.faltaram[u]     ?? 0),
-          reagendados:  existing.reagendados  || (evo?.reagendados[u]  ?? 0),
-          fecharam:     existing.fecharam     || (evo?.fecharam[u]     ?? 0),
-        };
-      } else {
-        map[u] = {
-          ...emptyRow(u, ''),
-          agendados:    evo?.agendados[u]    ?? 0,
-          compareceram: evo?.compareceram[u] ?? 0,
-          faltaram:     evo?.faltaram[u]     ?? 0,
-          reagendados:  evo?.reagendados[u]  ?? 0,
-          fecharam:     evo?.fecharam[u]     ?? 0,
-        };
-      }
+      map[u] = {
+        ...(existing ?? emptyRow(u, '')),
+        agendados:    pick(existing?.agendados,    evo?.agendados[u]),
+        compareceram: pick(existing?.compareceram, evo?.compareceram[u]),
+        faltaram:     pick(existing?.faltaram,     evo?.faltaram[u]),
+        reagendados:  (existing?.reagendados || 0) || (evo?.reagendados[u] ?? 0),
+        fecharam:     (existing?.fecharam    || 0) || (evo?.fecharam[u]    ?? 0),
+      };
     }
     return map;
   }, [allowedUnits]);
@@ -220,34 +214,18 @@ export function ComercialScreen({ data }: Props) {
     setLoading(true);
     try {
       const singleDay = start === end;
+      const units = allowedUnits.filter(u => unitFilter === 'Todas' || u === unitFilter);
+
+      // 1) Base MANUAL (central): dia único = NocoDB do dia (editável); período = soma do range.
+      const existingByUnit: Record<string, ComercialDiarioRow> = {};
       if (singleDay) {
-        // Modo dia único: NocoDB (manual da central) + cache de Agendados/Comp/Falt/Reag
-        // do EVO (só se já foi feito Sync). Fecharam virou MANUAL também (Marcelo
-        // 13/05/2026: "O fecharam ele disse que ta errado, pode deixar manual tbm").
         const list = await fetchComercialDoDia(start);
-        const existingByUnit: Record<string, ComercialDiarioRow> = {};
         for (const r of list) existingByUnit[r.branch_name] = r;
-
-        const evo = await fetchEvoComercialAuto(start, []); // [] = só cache
-        // Não usa mais auto do Fecharam — zera tanto o número quanto a lista
-        // (lista alimentava o drilldown modal). Marcelo 13/05/2026: o auto pegava
-        // cadastros Totalpass como "Fecharam" (Fernanda Azuma, Rafael Bezzon...)
-        // que NÃO são conversões reais, só registros automáticos do parceiro.
-        for (const u of Object.keys(evo.fecharam))     evo.fecharam[u]     = 0;
-        for (const u of Object.keys(evo.fecharamList)) evo.fecharamList[u] = [];
-
-        setRows(buildRows(existingByUnit, evo));
-        setEvoData(evo);
       } else {
-        // Modo período: soma valores de comercial_diario por unidade no range.
-        // Fecharam fica zerado (Marcelo: só quer analisar números do que foi lançado pela central).
-        const rows = await fetchComercialRange(start, end);
-        const aggByUnit: Record<string, ComercialDiarioRow> = {};
-        for (const u of allowedUnits) {
-          aggByUnit[u] = { ...emptyRow(u, ''), snapshot_date: `${start}..${end}` };
-        }
-        for (const r of rows) {
-          const agg = aggByUnit[r.branch_name];
+        const rangeRows = await fetchComercialRange(start, end);
+        for (const u of allowedUnits) existingByUnit[u] = { ...emptyRow(u, ''), snapshot_date: `${start}..${end}` };
+        for (const r of rangeRows) {
+          const agg = existingByUnit[r.branch_name];
           if (!agg) continue;
           agg.agendados    += Number(r.agendados)    || 0;
           agg.confirmados  += Number(r.confirmados)  || 0;
@@ -256,15 +234,57 @@ export function ComercialScreen({ data }: Props) {
           agg.fecharam     += Number(r.fecharam)     || 0;
           agg.reagendados  += Number(r.reagendados)  || 0;
         }
-        setRows(aggByUnit);
-        setEvoData(null); // sem auto-EVO em modo período
       }
+
+      // 2) EVO experimental AUTOMÁTICO pro período selecionado (sem clicar "Sync").
+      //    1 chamada barata à tabela ExperimentalEvo (todas as unidades). Fecharam segue
+      //    MANUAL (Marcelo 13/05/2026) — não puxamos do EVO p/ não pegar Totalpass.
+      const evo: ComercialAutoData = {
+        agendados: {}, compareceram: {}, faltaram: {}, reagendados: {}, fecharam: {},
+        agendadosList: {}, compareceramList: {}, faltaramList: {}, reagendadosList: {}, fecharamList: {},
+        fetchedAt: Date.now(), hasError: false,
+      };
+      try {
+        const exp = await fetchComercialExpRange(start, end);
+        if (exp?.enabled) {
+          for (const [u, v] of Object.entries(exp.byUnit)) {
+            evo.agendados[u]    = Number(v.agendados)    || 0;
+            evo.compareceram[u] = Number(v.compareceram) || 0;
+            evo.faltaram[u]     = Number(v.faltaram)     || 0;
+            evo.reagendados[u]  = Number(v.reagendados)  || 0;
+          }
+        }
+      } catch (e) { console.warn('[Comercial] auto exp-range falhou:', e); }
+
+      // 3) DIA ÚNICO: unidades ainda zeradas (scraper não populou o dia) → reconstrói
+      //    AO VIVO pela API de integração. Garante que HOJE/ONTEM mostrem dado real.
+      //    Período não faz (evita varrer N dias).
+      if (singleDay) {
+        await Promise.all(units.map(async (u) => {
+          const jaTem = (evo.agendados[u] ?? 0) > 0 || (Number(existingByUnit[u]?.agendados) || 0) > 0;
+          if (jaTem) return;
+          try {
+            const br = await fetchBranchEnrollmentsSingle(start, u);
+            evo.agendados[u]    = br.agendados;
+            evo.compareceram[u] = br.compareceram;
+            evo.faltaram[u]     = br.faltaram;
+            evo.reagendados[u]  = br.reagendados;
+            evo.agendadosList[u]    = br.agendadosList;
+            evo.compareceramList[u] = br.compareceramList;
+            evo.faltaramList[u]     = br.faltaramList;
+            evo.reagendadosList[u]  = br.reagendadosList;
+          } catch (e) { console.warn(`[Comercial] reconstrução ${u} ${start} falhou:`, e); }
+        }));
+      }
+
+      setRows(buildRows(existingByUnit, evo, !singleDay));
+      setEvoData(evo);
     } catch (e) {
       console.error('[Comercial] load error:', e);
     } finally {
       setLoading(false);
     }
-  }, [allowedUnits, buildRows]);
+  }, [allowedUnits, buildRows, unitFilter]);
 
   useEffect(() => {
     // queueMicrotask difere o setLoading(true) síncrono interno de load()
@@ -301,7 +321,7 @@ export function ComercialScreen({ data }: Props) {
         next.compareceramList[branchName] = data.compareceramList;
         next.faltaramList[branchName]     = data.faltaramList;
         next.reagendadosList[branchName]  = data.reagendadosList;
-        setRows(buildRows(existingByUnit, next));
+        setRows(buildRows(existingByUnit, next, !isSingleDay));
         return next;
       });
     } catch (e) {
@@ -418,81 +438,47 @@ export function ComercialScreen({ data }: Props) {
               >
                 <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
               </button>
-              <div className="flex items-center gap-2 px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600 shadow-sm">
-                <Calendar size={13} className="text-primary shrink-0" />
-                <MonthCalendarPopover
-                  month={endDate.slice(0, 7)}
-                  onPick={ym => {
-                    const [y, m] = ym.split('-').map(Number);
-                    const last = new Date(y, m, 0).getDate();
-                    const today = todayISO();
-                    setStartDate(`${ym}-01`);
-                    setEndDate(ym === today.slice(0, 7) ? today : `${ym}-${String(last).padStart(2, '0')}`);
-                  }}
-                  buttonTitle="Escolher um mês inteiro no calendário"
-                  buttonClassName="px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                >
-                  Mês
-                </MonthCalendarPopover>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={e => {
-                    const v = e.target.value;
-                    setStartDate(v);
-                    if (v > endDate) setEndDate(v); // mantém endDate >= startDate
-                  }}
-                  className="bg-transparent text-[12px] font-bold text-slate-700 focus:outline-none cursor-pointer"
-                  title="Data inicial"
-                />
-                <span className="text-slate-400 font-bold">→</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  min={startDate}
-                  onChange={e => setEndDate(e.target.value)}
-                  className="bg-transparent text-[12px] font-bold text-slate-700 focus:outline-none cursor-pointer"
-                  title="Data final"
-                />
-                {(startDate !== todayISO() || endDate !== todayISO()) && (
-                  <button
-                    type="button"
-                    onClick={() => { setStartDate(todayISO()); setEndDate(todayISO()); }}
-                    title="Voltar pra hoje"
-                    className="ml-1 w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
-                  >
-                    <X size={11} />
-                  </button>
-                )}
-              </div>
+              <DateFilterBar
+                value={{ from: startDate, to: endDate }}
+                onChange={r => { setStartDate(r.from); setEndDate(r.to); }}
+                maxDate={todayISO()}
+                isCurrent={startDate === todayISO() && endDate === todayISO()}
+                onReset={() => { setStartDate(todayISO()); setEndDate(todayISO()); }}
+              />
             </div>
-            {/* Atalhos de período */}
+            {/* Atalhos de período — IGUAIS aos do painel EVO (Hoje / Esta semana /
+                Semana passada / Este mês / Mês passado) pra bater 1:1. Semana = Dom→Sáb. */}
             <div className="flex items-center gap-1.5 text-[10px] font-bold">
-              {([
-                { label: 'Hoje',         start: 0,  end: 0 },
-                { label: 'Ontem',        start: 1,  end: 1 },
-                { label: '7 dias',       start: 6,  end: 0 },
-                { label: '30 dias',      start: 29, end: 0 },
-                { label: 'Este mês',     start: 'monthStart' as const, end: 0 },
-              ]).map(p => {
+              {(['Hoje', 'Esta semana', 'Semana passada', 'Este mês', 'Mês passado'] as const).map(label => {
                 const apply = () => {
                   const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
                   const now = new Date();
-                  const e = new Date(now); e.setDate(now.getDate() - (typeof p.end === 'number' ? p.end : 0));
-                  const s = new Date(now);
-                  if (p.start === 'monthStart') s.setDate(1);
-                  else s.setDate(now.getDate() - p.start);
+                  let s = new Date(now), e = new Date(now);
+                  if (label === 'Hoje') {
+                    // s=e=hoje
+                  } else if (label === 'Esta semana' || label === 'Semana passada') {
+                    const dow = now.getDay();                 // 0=Dom … 6=Sáb
+                    s = new Date(now); s.setDate(now.getDate() - dow);           // domingo desta semana
+                    if (label === 'Semana passada') s.setDate(s.getDate() - 7);  // semana anterior
+                    e = new Date(s); e.setDate(s.getDate() + 6);                 // sábado
+                  } else if (label === 'Este mês') {
+                    s = new Date(now.getFullYear(), now.getMonth(), 1);
+                    e = new Date(now.getFullYear(), now.getMonth() + 1, 0);      // último dia do mês
+                  } else { // Mês passado
+                    s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    e = new Date(now.getFullYear(), now.getMonth(), 0);          // último dia do mês anterior
+                  }
                   setStartDate(fmt(s));
                   setEndDate(fmt(e));
                 };
                 return (
                   <button
-                    key={p.label}
+                    key={label}
                     type="button"
                     onClick={apply}
                     className="px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-500 hover:text-cyan-600 hover:border-cyan-300 transition-colors uppercase tracking-wider"
                   >
-                    {p.label}
+                    {label}
                   </button>
                 );
               })}

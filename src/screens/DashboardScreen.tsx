@@ -34,7 +34,7 @@ import { VendasMesModal } from '../components/VendasMesModal';
 import { EvasaoModal } from '../components/EvasaoModal';
 import { InadimplentesModal } from '../components/InadimplentesModal';
 import { type CurrentMonthPoint, type UnitMonthValues } from '../components/NetworkTrendChart';
-import { MonthFilterBar } from '../components/MonthCalendarPopover';
+import { DateFilterBar } from '../components/DateFilterBar';
 import { lazyWithRetry } from '../lib/lazyWithRetry';
 import { type BranchStats, type ReceivablesData, fetchReceivables, filterReceivablesByUnits, type OccupationData, fetchOccupation } from '../services/evoApi';
 import { HistoricalSeedModal } from '../components/HistoricalSeedModal';
@@ -123,13 +123,6 @@ export function DashboardScreen({ data, isLoading, onNavigate, currentUser }: Pr
   // Mês atual = dados ao vivo do EVO (range default). Mês passado = 1º→último
   // dia do mês: estoque via snapshot do histórico + Vendas ao vivo do período.
   const selectedMonth = isDefaultRange ? periodoAtual : dateTo.slice(0, 7);
-  const goToMonth = useCallback((ym: string) => {
-    if (ym >= periodoAtual) { resetDateRange(); return; } // mês atual (ou futuro) → ao vivo
-    const [y, m] = ym.split('-').map(Number);
-    const lastDay = new Date(y, m, 0).getDate();
-    setDateFrom(`${ym}-01`);
-    setDateTo(`${ym}-${String(lastDay).padStart(2, '0')}`);
-  }, [periodoAtual, resetDateRange, setDateFrom, setDateTo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -376,13 +369,13 @@ export function DashboardScreen({ data, isLoading, onNavigate, currentUser }: Pr
 
           {/* Right side: date range + actions */}
           <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-            <MonthFilterBar
-              selectedMonth={selectedMonth}
+            <DateFilterBar
+              value={{ from: dateFrom, to: dateTo }}
+              onChange={r => { setDateFrom(r.from); setDateTo(r.to); }}
+              minDate={`${oldestHistMonth}-01`}
               isCurrent={isDefaultRange}
-              minMonth={oldestHistMonth}
-              onPick={goToMonth}
               onReset={resetDateRange}
-              legend="Verde = mês atual (ao vivo) · Cinza = sem histórico"
+              legend="Mês inteiro (ao vivo/histórico) ou um dia"
             />
             {isAdminUser && (
               <button

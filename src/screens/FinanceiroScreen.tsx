@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { MonthFilterBar } from '../components/MonthCalendarPopover';
+import { DateFilterBar } from '../components/DateFilterBar';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TrendingUp, Users, Zap, BarChart2, RefreshCw, X } from 'lucide-react';
 import {
@@ -58,14 +58,6 @@ export function FinanceiroScreen({ data, isLoading }: Props) {
   const curYM = todayISO.slice(0, 7);
   const selectedMonth = isDefaultRange ? curYM : dateTo.slice(0, 7);
   const isHistMode = selectedMonth < curYM; // mês passado → member-based vem do histórico
-  const goToMonth = (ym: string) => {
-    if (ym >= curYM) { setDateFrom(firstOfMonthISO); setDateTo(todayISO); return; }
-    const [y, m] = ym.split('-').map(Number);
-    const last = new Date(y, m, 0).getDate();
-    setDateFrom(`${ym}-01`);
-    setDateTo(`${ym}-${String(last).padStart(2, '0')}`);
-  };
-
   // Histórico mensal (tabela Membros via /api/history) — snapshot + comparativos.
   const { rows: historyRows } = useEvoHistory();
   const oldestHistMonth = useMemo(() => {
@@ -428,13 +420,14 @@ export function FinanceiroScreen({ data, isLoading }: Props) {
         ) : <div />}
 
         {/* Filtro de mês — calendário padrão do sistema */}
-        <MonthFilterBar
-          selectedMonth={selectedMonth}
+        <DateFilterBar
+          value={{ from: dateFrom, to: dateTo }}
+          onChange={r => { setDateFrom(r.from); setDateTo(r.to); }}
+          maxDate={todayISO}
+          minDate={`${oldestHistMonth}-01`}
           isCurrent={isDefaultRange}
-          minMonth={oldestHistMonth}
-          onPick={goToMonth}
           onReset={() => { setDateFrom(firstOfMonthISO); setDateTo(todayISO); }}
-          legend="Verde = mês atual (ao vivo) · Cinza = sem histórico"
+          legend="Mês inteiro (ao vivo/histórico) ou um dia"
         />
       </div>
 
