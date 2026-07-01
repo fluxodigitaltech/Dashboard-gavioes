@@ -105,7 +105,7 @@ const FLUXO_TOKEN   = process.env.FLUXO_API_TOKEN || '';
 const FLUXO_ACCOUNT = process.env.FLUXO_ACCOUNT_ID || '';
 
 // Nomes oficiais das unidades no dashboard (mesmos do evoApi BRANCHES).
-const HIST_UNITS = ['Altino Arantes', 'Saúde', 'Parque das Nações', 'Alto do Ipiranga', 'Jardins', 'Belenzinho', 'Campestre'];
+const HIST_UNITS = ['Gaviões'];
 // "GAVIOES - BELENZINHO" → "BELENZINHO"; "GAVIOES SAÚDE" → "SAUDE"; etc.
 const histNorm = (s) => String(s || '')
   .toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -990,8 +990,7 @@ async function syncVendasRecentes() {
 const expSleep = (ms) => new Promise(r => setTimeout(r, ms));
 // EVO IdFilial por unidade (a EVO pulou o id 2 → offset +1 vs idBranch local).
 const EVO_FILIAL_ID = {
-  'Altino Arantes': 1, 'Saúde': 3, 'Parque das Nações': 4, 'Alto do Ipiranga': 5,
-  'Jardins': 6, 'Belenzinho': 7, 'Campestre': 8,
+  'Gaviões': 59,
 };
 let EXP_TABLE = process.env.NOCODB_EXP_TABLE || '';
 let expEnsureInflight = null;

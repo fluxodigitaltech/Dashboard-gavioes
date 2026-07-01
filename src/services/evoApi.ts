@@ -2186,13 +2186,7 @@ export async function fetchOccupation(force = false): Promise<OccupationData> {
 // pulou o ID 2). Mapping em EVO_FILIAL_TO_BRANCH abaixo.
 
 const EVO_FILIAL_TO_BRANCH: Record<number, string> = {
-  1: 'Altino Arantes',
-  3: 'Saúde',
-  4: 'Parque das Nações',
-  5: 'Alto do Ipiranga',
-  6: 'Jardins',
-  7: 'Belenzinho',
-  8: 'Campestre',
+  59: 'Gaviões',
 };
 
 /** Resumo de um lead/cliente pra drilldown na tela Comercial. */

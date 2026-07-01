@@ -21,7 +21,7 @@ const STATUS_OPTS = [
   { value: 'negociacao',  label: 'Em Negociação', color: 'text-amber-600 bg-amber-50 border-amber-200' },
 ];
 
-const UNIDADES = ['Todas', 'Altino Arantes', 'Saúde', 'Parque das Nações', 'Alto do Ipiranga', 'Jardins', 'Belenzinho', 'Campestre'];
+const UNIDADES = ['Todas', 'Gaviões'];
 
 const SAMPLE: Agregador[] = [
   { id: '1', nome: 'Gympass', plataforma: 'Gympass / Wellhub', unidade: 'Todas', membrosAtivos: 0, receitaMensal: 0, percentualRepasse: 70, status: 'ativo', observacao: '' },
