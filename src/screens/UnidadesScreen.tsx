@@ -177,8 +177,8 @@ export function UnidadesScreen({ data, isLoading, onNavigate }: Props) {
             <motion.div key={unit.name} variants={item}>
               <DetailedUnitCard
                 unit={unit}
-                faturamentoMes={recByUnit[unit.name] ?? 0}
-                hasReceivables={receivables !== null}
+                faturamentoMes={recByUnit[unit.name] ?? unit.faturamentoTotalMes ?? 0}
+                hasReceivables={receivables !== null || unit.faturamentoTotalMes != null}
                 onDetailsClick={() => setSelectedUnit(unit)}
               />
             </motion.div>
