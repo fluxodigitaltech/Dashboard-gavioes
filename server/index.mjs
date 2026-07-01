@@ -603,14 +603,11 @@ async function buildMembersIndex() {
 // estão no env do runtime (Easypanel injeta as mesmas variáveis do build).
 const EVO_API = 'https://evo-integracao-api.w12app.com.br';
 const EVO_DNS = 'gavioes';
+// Gaviões: unidade única "Gaviões" (branchId 59, DNS 'gavioes'). O token é o da
+// API DE INTEGRAÇÃO do EVO (chave Basic), NÃO o login do scraper (usuário/senha).
+// Definido em runtime via VITE_EVO_TOKEN_GAVIOES no serviço do dashboard.
 const EVO_UNIT_TOKENS = () => ({
-  'Altino Arantes':    process.env.VITE_EVO_TOKEN_ALTINO_ARANTES,
-  'Saúde':             process.env.VITE_EVO_TOKEN_SAUDE,
-  'Parque das Nações': process.env.VITE_EVO_TOKEN_PARQUE_NACOES,
-  'Alto do Ipiranga':  process.env.VITE_EVO_TOKEN_ALTO_IPIRANGA,
-  'Jardins':           process.env.VITE_EVO_TOKEN_JARDINS,
-  'Belenzinho':        process.env.VITE_EVO_TOKEN_BELENZINHO,
-  'Campestre':         process.env.VITE_EVO_TOKEN_CAMPESTRE,
+  'Gaviões': process.env.VITE_EVO_TOKEN_GAVIOES,
 });
 
 // DETERMINÍSTICO: unidades em sequência (ordem fixa), retry com backoff em
