@@ -603,14 +603,11 @@ async function buildMembersIndex() {
 // estão no env do runtime (Easypanel injeta as mesmas variáveis do build).
 const EVO_API = 'https://evo-integracao-api.w12app.com.br';
 const EVO_DNS = 'gavioes';
+// Gaviões: unidade única "Gaviões" (branchId 59, DNS 'gavioes'). O token é o da
+// API DE INTEGRAÇÃO do EVO (chave Basic), NÃO o login do scraper (usuário/senha).
+// Definido em runtime via VITE_EVO_TOKEN_GAVIOES no serviço do dashboard.
 const EVO_UNIT_TOKENS = () => ({
-  'Altino Arantes':    process.env.VITE_EVO_TOKEN_ALTINO_ARANTES,
-  'Saúde':             process.env.VITE_EVO_TOKEN_SAUDE,
-  'Parque das Nações': process.env.VITE_EVO_TOKEN_PARQUE_NACOES,
-  'Alto do Ipiranga':  process.env.VITE_EVO_TOKEN_ALTO_IPIRANGA,
-  'Jardins':           process.env.VITE_EVO_TOKEN_JARDINS,
-  'Belenzinho':        process.env.VITE_EVO_TOKEN_BELENZINHO,
-  'Campestre':         process.env.VITE_EVO_TOKEN_CAMPESTRE,
+  'Gaviões': process.env.VITE_EVO_TOKEN_GAVIOES,
 });
 
 // DETERMINÍSTICO: unidades em sequência (ordem fixa), retry com backoff em
@@ -1001,6 +998,55 @@ let expEnsureInflight = null;
 const expSyncGuard = new Map();   // month → timestamp do último backfill disparado
 let expBackfillJob = { running: false, startedAt: 0, month: '', total: 0, done: 0, unidade: '' };
 
+// ── Ponte com o evo-scraper ──────────────────────────────────────────────────
+// A Gaviões NÃO tem API de integração pra aulas experimentais — a fonte é o
+// scraper (loga no painel EVO5 e devolve as experimentais por dia). O server só
+// repassa (Bearer) e cacheia no NocoDB. Aceita SCRAPER_UPSTREAM (nome usado no
+// ambiente da Gaviões) ou SCRAPER_URL.
+const SCRAPER_URL   = (process.env.SCRAPER_UPSTREAM || process.env.SCRAPER_URL || '').replace(/\/+$/, '');
+const SCRAPER_TOKEN = process.env.SCRAPER_TOKEN || '';
+async function scraperFetch(path) {
+  if (!SCRAPER_URL || !SCRAPER_TOKEN) return null;
+  const r = await fetchComTimeout(`${SCRAPER_URL}${path}`, { headers: { Authorization: `Bearer ${SCRAPER_TOKEN}` } }, 90_000);
+  if (!r.ok) throw new Error(`scraper respondeu ${r.status}`);
+  return r.json();
+}
+
+// Cache em memória das aulas experimentais. A Gaviões NÃO tem tabela NocoDB pra isso
+// (o NocoDB só tem gb_users) — então servimos DIRETO do scraper e cacheamos aqui.
+// Chave = "from|to". TTL 10min. Refresh em background (não bloqueia a resposta).
+const EXP_MEM = new Map();            // key → { at, byUnit }
+const EXP_MEM_TTL = 10 * 60 * 1000;
+let expScrapeRunning = false;
+async function scrapeExpRangeToByUnit(from, to) {
+  const data = await scraperFetch(`/exp?from=${from}&to=${to}`);
+  const bd = (data && data.byDay) || {};
+  const agg = { agendados: 0, compareceram: 0, faltaram: 0, reagendados: 0, dias: 0, completos: 0 };
+  for (const dia of Object.keys(bd)) {
+    const d = bd[dia] || {};
+    agg.agendados    += Number(d.agendados)    || 0;
+    agg.compareceram += Number(d.compareceram) || 0;
+    agg.faltaram     += Number(d.faltaram)     || 0;
+    agg.reagendados  += Number(d.reagendados)  || 0;
+    agg.dias++; agg.completos++;
+  }
+  return { 'Gaviões': agg };
+}
+// Dispara (no máx. 1 por vez) um scrape do range e guarda no cache. Não lança.
+function kickExpScrape(key, from, to) {
+  if (expScrapeRunning) return;
+  expScrapeRunning = true;
+  (async () => {
+    try {
+      const byUnit = await scrapeExpRangeToByUnit(from, to);
+      EXP_MEM.set(key, { at: Date.now(), byUnit });
+      console.log(`[exp] scraper ${from}..${to}: Gaviões =`, JSON.stringify(byUnit['Gaviões']));
+    } catch (e) {
+      console.error('[exp] scraper falhou:', e?.message || e);
+    } finally { expScrapeRunning = false; }
+  })();
+}
+
 async function ensureExpTable() {
   if (EXP_TABLE) return EXP_TABLE;
   if (!HIST_BASE || !HIST_TOKEN || !NOCODB_BASE_ID) return '';
@@ -1106,48 +1152,47 @@ async function getExpRowsMonth(month) {
   return { table: t, byKey };
 }
 
-// Varre o mês (incremental) e grava no NocoDB. force=true re-escaneia tudo.
+// Sincroniza o mês via SCRAPER (painel EVO5) e grava no NocoDB. O scraper é
+// range-native: UMA chamada cobre o mês inteiro (loga no painel, conta agendados/
+// compareceram/faltaram por dia). Substitui a varredura por-dia da API de
+// integração — que a Gaviões NÃO tem. (unidade única: "Gaviões", filial 59.)
 async function syncExpMonth(month, opts = {}) {
-  const force = !!opts.force;
   const t = await ensureExpTable();
   if (!t) return { ok: false, reason: 'sem-tabela' };
+  if (!SCRAPER_URL) return { ok: false, reason: 'sem-scraper' };
   const [y, m] = month.split('-').map(Number);
   const ult = new Date(y, m, 0).getDate();
-  const hojeISO = new Date().toISOString().slice(0, 10);
-  // Varre o MÊS INTEIRO, inclusive dias FUTUROS — quem já reservou aula
-  // experimental pra frente conta como "agendado". Dia PASSADO e completo fica
-  // cacheado; HOJE e dias FUTUROS são SEMPRE re-escaneados (ainda mudam: entram
-  // reservas novas e, ao chegar o dia, vira presença/falta).
-  const dias = [];
-  for (let d = 1; d <= ult; d++) dias.push(`${month}-${String(d).padStart(2, '0')}`);
-  const { byKey } = await getExpRowsMonth(month);
-  const entries = Object.entries(EVO_UNIT_TOKENS()).filter(([, tk]) => !!tk);
-  const precisaScan = (unidade, dia) => {
-    const row = byKey.get(`${unidade}|${dia}`);
-    return force || !row || !row.completo || dia >= hojeISO; // hoje + futuros sempre re-escaneiam
-  };
-  let total = 0;
-  for (const [unidade] of entries) for (const dia of dias) if (precisaScan(unidade, dia)) total++;
-  if (opts.job) { expBackfillJob.total = total; expBackfillJob.done = 0; }
-  let done = 0;
-  for (const [unidade, token] of entries) {
-    for (const dia of dias) {
-      if (!precisaScan(unidade, dia)) continue;
-      if (opts.job) expBackfillJob.unidade = `${unidade} · ${dia}`;
-      const res = await scanExpDiaUnidade(unidade, token, dia);
-      if (res) {
-        const row = byKey.get(`${unidade}|${dia}`);
-        const payload = { unidade, dia, month, agendados: res.agendados, compareceram: res.compareceram, faltaram: res.faltaram, reagendados: res.reagendados, completo: res.completo, scanned_at: new Date().toISOString() };
-        try {
-          if (row?.Id) await fetch(`${HIST_BASE}/tables/${t}/records`, { method: 'PATCH', headers: leadsHeaders(), body: JSON.stringify({ Id: row.Id, ...payload }) });
-          else { const ins = await fetch(`${HIST_BASE}/tables/${t}/records`, { method: 'POST', headers: leadsHeaders(), body: JSON.stringify(payload) }).then(x => x.json()).catch(() => null); if (ins?.Id) byKey.set(`${unidade}|${dia}`, { Id: ins.Id, ...payload }); }
-        } catch (e) { console.warn(`[exp] gravar ${unidade} ${dia} falhou:`, e?.message || e); }
-      }
-      done++;
-      if (opts.job) expBackfillJob.done = done;
-    }
+  const from = `${month}-01`;
+  const to   = `${month}-${String(ult).padStart(2, '0')}`;
+  let data;
+  try {
+    data = await scraperFetch(`/exp?from=${from}&to=${to}`);
+  } catch (e) {
+    console.warn('[exp] scraper falhou:', e?.message || e);
+    return { ok: false, reason: 'scraper-erro' };
   }
-  console.log(`[exp] ${month}: ${done} unidade-dias escaneados`);
+  const byDay = (data && data.byDay) || {};
+  const unidade = 'Gaviões';
+  const { byKey } = await getExpRowsMonth(month);
+  const dias = Object.keys(byDay).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  if (opts.job) { expBackfillJob.total = dias.length; expBackfillJob.done = 0; }
+  let done = 0;
+  for (const dia of dias) {
+    const d = byDay[dia] || {};
+    if (opts.job) expBackfillJob.unidade = `${unidade} · ${dia}`;
+    const row = byKey.get(`${unidade}|${dia}`);
+    const payload = { unidade, dia, month,
+      agendados: Number(d.agendados) || 0, compareceram: Number(d.compareceram) || 0,
+      faltaram: Number(d.faltaram) || 0, reagendados: Number(d.reagendados) || 0,
+      completo: true, scanned_at: new Date().toISOString() };
+    try {
+      if (row?.Id) await fetch(`${HIST_BASE}/tables/${t}/records`, { method: 'PATCH', headers: leadsHeaders(), body: JSON.stringify({ Id: row.Id, ...payload }) });
+      else { const ins = await fetch(`${HIST_BASE}/tables/${t}/records`, { method: 'POST', headers: leadsHeaders(), body: JSON.stringify(payload) }).then(x => x.json()).catch(() => null); if (ins?.Id) byKey.set(`${unidade}|${dia}`, { Id: ins.Id, ...payload }); }
+    } catch (e) { console.warn(`[exp] gravar ${unidade} ${dia} falhou:`, e?.message || e); }
+    done++;
+    if (opts.job) expBackfillJob.done = done;
+  }
+  console.log(`[exp] ${month}: ${done} dias gravados (via scraper)`);
   return { ok: true, dias: dias.length, escaneados: done };
 }
 
@@ -1807,71 +1852,36 @@ const server = http.createServer(async (req, res) => {
 
     // ── Aulas Experimentais por intervalo (lê a tabela; backfill em bg dos faltantes) ──
     if (req.method === 'GET' && req.url.startsWith('/api/comercial-exp-range?')) {
-      if (!HIST_BASE || !HIST_TOKEN) return send(res, 200, { enabled: false });
+      if (!SCRAPER_URL) return send(res, 200, { enabled: false });
       const q = new URL(req.url, 'http://x').searchParams;
       const from = q.get('from') || '';
       const to   = q.get('to')   || '';
       if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
         return send(res, 400, { error: 'from e to (YYYY-MM-DD, from<=to) obrigatórios' });
       }
-      try {
-        const t = await ensureExpTable();
-        if (!t) return send(res, 200, { enabled: false });
-        // Meses cobertos pelo intervalo (pode cruzar a virada de mês).
-        const months = new Set();
-        {
-          const a = new Date(from + 'T00:00:00'); const b = new Date(to + 'T00:00:00');
-          const d = new Date(a.getFullYear(), a.getMonth(), 1);
-          while (d <= b) { months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); d.setMonth(d.getMonth() + 1); }
-        }
-        const byUnit = {};
-        for (const mth of months) {
-          const { byKey } = await getExpRowsMonth(mth);
-          for (const row of byKey.values()) {
-            if (row.dia < from || row.dia > to) continue;
-            const u = row.unidade;
-            if (!byUnit[u]) byUnit[u] = { agendados: 0, compareceram: 0, faltaram: 0, reagendados: 0, dias: 0, completos: 0 };
-            byUnit[u].agendados    += Number(row.agendados)    || 0;
-            byUnit[u].compareceram += Number(row.compareceram) || 0;
-            byUnit[u].faltaram     += Number(row.faltaram)     || 0;
-            byUnit[u].reagendados  += Number(row.reagendados)  || 0;
-            byUnit[u].dias++;
-            if (row.completo) byUnit[u].completos++;
-          }
-        }
-        // Dispara backfill em BACKGROUND do mês mais recente do intervalo (throttle 10min),
-        // sem bloquear a resposta. Dia passado já gravado é pulado lá dentro (incremental).
-        const curMonth = new Date().toISOString().slice(0, 7);
-        const alvo = [...months].filter(mth => mth <= curMonth).sort();
-        const mth = alvo[alvo.length - 1];
-        if (mth && !expBackfillJob.running && Date.now() - (expSyncGuard.get(mth) || 0) > 10 * 60 * 1000) {
-          expSyncGuard.set(mth, Date.now());
-          expBackfillJob = { running: true, startedAt: Date.now(), month: mth, total: 0, done: 0, unidade: '' };
-          (async () => { try { await syncExpMonth(mth, { job: true }); } catch (e) { console.error('[exp] bg sync', e); } finally { expBackfillJob.running = false; } })();
-        }
-        return send(res, 200, { enabled: true, byUnit, backfilling: expBackfillJob.running });
-      } catch (e) {
-        console.error('[comercial-exp-range]', e);
-        return send(res, 502, { error: 'Falha ao ler aulas experimentais.', detail: String(e?.message || e) });
-      }
+      // Serve do CACHE (scraper). Se não tem cache fresco, dispara scrape em bg e
+      // devolve o que tiver (front re-consulta enquanto backfilling=true).
+      const key = `${from}|${to}`;
+      const cached = EXP_MEM.get(key);
+      const fresh = cached && (Date.now() - cached.at < EXP_MEM_TTL);
+      if (!fresh) kickExpScrape(key, from, to);
+      return send(res, 200, { enabled: true, byUnit: cached?.byUnit || {}, backfilling: expScrapeRunning && !fresh });
     }
 
-    // ── Recalcular aulas experimentais de um mês (sob demanda, com progresso) ──
+    // ── Recalcular (força re-scrape do range, ignorando o cache) ──
     if (req.method === 'POST' && req.url === '/api/comercial-exp-backfill') {
-      if (!HIST_BASE || !HIST_TOKEN) return send(res, 200, { enabled: false });
+      if (!SCRAPER_URL) return send(res, 200, { enabled: false });
       const body = await readBody(req);
-      const month = String(body?.month || new Date().toISOString().slice(0, 7));
-      if (!/^\d{4}-\d{2}$/.test(month)) return send(res, 400, { error: 'month (YYYY-MM) obrigatório' });
-      if (expBackfillJob.running) {
-        return send(res, 200, { ok: true, started: false, jaRodando: true, month: expBackfillJob.month, total: expBackfillJob.total, done: expBackfillJob.done });
+      const from = String(body?.from || '');
+      const to   = String(body?.to   || from);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        EXP_MEM.delete(`${from}|${to}`);
+        kickExpScrape(`${from}|${to}`, from, to);
       }
-      expSyncGuard.set(month, Date.now());
-      expBackfillJob = { running: true, startedAt: Date.now(), month, total: 0, done: 0, unidade: '' };
-      (async () => { try { await syncExpMonth(month, { job: true, force: !!body?.force }); } catch (e) { console.error('[exp] backfill', e); } finally { expBackfillJob.running = false; } })();
-      return send(res, 200, { ok: true, started: true, month });
+      return send(res, 200, { ok: true, started: true, running: expScrapeRunning });
     }
     if (req.method === 'GET' && req.url === '/api/comercial-exp-backfill/status') {
-      return send(res, 200, { running: expBackfillJob.running, month: expBackfillJob.month, total: expBackfillJob.total, done: expBackfillJob.done, unidade: expBackfillJob.unidade });
+      return send(res, 200, { running: expScrapeRunning });
     }
 
     // ── Debug do mapeamento da tabela histórica de vendas (conferir colunas) ──

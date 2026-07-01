@@ -15,6 +15,9 @@ import { config } from './config.js';
 import { logger } from './lib/logger.js';
 import { enqueueSync, getJob, listRecentJobs, lastSuccessfulJob } from './jobs.js';
 import { getLatestSnapshot, getBranchSnapshot } from './storage.js';
+import { ensureAuthenticated } from './auth.js';
+import { createEvoClient } from './evoClient.js';
+import { extractExperimentais } from './extractors/experimentais.js';
 
 export function makeApp() {
   const app = express();
@@ -83,6 +86,30 @@ export function makeApp() {
     const snap = await getBranchSnapshot(String(req.params.branchId));
     if (!snap) return res.status(404).json({ error: 'sem snapshot pra essa filial' });
     res.json(snap);
+  });
+
+  // Aulas Experimentais (aba Comercial) — raspa o painel gerencial no intervalo
+  // [from,to] e devolve por dia + totais. É a fonte da Comercial (a Gaviões não tem
+  // API de integração pra isso). GET /exp?from=YYYY-MM-DD&to=YYYY-MM-DD (to opcional=from).
+  app.get('/exp', requireBearer, async (req, res) => {
+    const from = String(req.query.from ?? '');
+    const to   = String(req.query.to ?? from) || from;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+      return res.status(400).json({ error: 'from/to no formato YYYY-MM-DD, from <= to' });
+    }
+    let context;
+    try {
+      const auth = await ensureAuthenticated();
+      context = auth.context;
+      const client = await createEvoClient(auth.page);
+      const r = await extractExperimentais(client, from, to);
+      res.json({ unidade: 'Gaviões', from, to, ...r });
+    } catch (e) {
+      logger.error({ err: (e as Error).message, from, to }, 'exp scrape failed');
+      res.status(502).json({ error: (e as Error).message });
+    } finally {
+      if (context) await context.close().catch(() => {});
+    }
   });
 
   app.get('/last-sync', requireBearer, (_req, res) => {

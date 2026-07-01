@@ -134,6 +134,19 @@ export async function uiLogin(page: Page): Promise<void> {
   await userLocator.waitFor({ state: 'visible', timeout: 20_000 });
   await passLocator.waitFor({ state: 'visible', timeout: 5_000 });
 
+  // O widget de chat "wehelp" às vezes injeta um overlay full-screen que INTERCEPTA
+  // o clique no campo de login (Playwright trava: "wehelp-widget-overlay intercepts
+  // pointer events" → click timeout). Esconde/desativa o widget antes de interagir.
+  await page.evaluate(() => {
+    for (const sel of ['#root-wehelp', '#wehelp-widget-overlay', '[id^="wehelp"]', '[class*="wehelp"]']) {
+      document.querySelectorAll(sel).forEach((el) => {
+        const h = el as HTMLElement;
+        h.style.setProperty('display', 'none', 'important');
+        h.style.setProperty('pointer-events', 'none', 'important');
+      });
+    }
+  }).catch(() => {});
+
   // ⚠️ Importante: Angular Material reactive forms só registra o valor quando
   // dispara os eventos input/blur naturalmente. `fill()` seta `value` mas em
   // alguns componentes Material não dispara o ngModel binding — o form fica
