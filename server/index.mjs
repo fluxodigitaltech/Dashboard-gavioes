@@ -1012,6 +1012,41 @@ async function scraperFetch(path) {
   return r.json();
 }
 
+// Cache em memória das aulas experimentais. A Gaviões NÃO tem tabela NocoDB pra isso
+// (o NocoDB só tem gb_users) — então servimos DIRETO do scraper e cacheamos aqui.
+// Chave = "from|to". TTL 10min. Refresh em background (não bloqueia a resposta).
+const EXP_MEM = new Map();            // key → { at, byUnit }
+const EXP_MEM_TTL = 10 * 60 * 1000;
+let expScrapeRunning = false;
+async function scrapeExpRangeToByUnit(from, to) {
+  const data = await scraperFetch(`/exp?from=${from}&to=${to}`);
+  const bd = (data && data.byDay) || {};
+  const agg = { agendados: 0, compareceram: 0, faltaram: 0, reagendados: 0, dias: 0, completos: 0 };
+  for (const dia of Object.keys(bd)) {
+    const d = bd[dia] || {};
+    agg.agendados    += Number(d.agendados)    || 0;
+    agg.compareceram += Number(d.compareceram) || 0;
+    agg.faltaram     += Number(d.faltaram)     || 0;
+    agg.reagendados  += Number(d.reagendados)  || 0;
+    agg.dias++; agg.completos++;
+  }
+  return { 'Gaviões': agg };
+}
+// Dispara (no máx. 1 por vez) um scrape do range e guarda no cache. Não lança.
+function kickExpScrape(key, from, to) {
+  if (expScrapeRunning) return;
+  expScrapeRunning = true;
+  (async () => {
+    try {
+      const byUnit = await scrapeExpRangeToByUnit(from, to);
+      EXP_MEM.set(key, { at: Date.now(), byUnit });
+      console.log(`[exp] scraper ${from}..${to}: Gaviões =`, JSON.stringify(byUnit['Gaviões']));
+    } catch (e) {
+      console.error('[exp] scraper falhou:', e?.message || e);
+    } finally { expScrapeRunning = false; }
+  })();
+}
+
 async function ensureExpTable() {
   if (EXP_TABLE) return EXP_TABLE;
   if (!HIST_BASE || !HIST_TOKEN || !NOCODB_BASE_ID) return '';
@@ -1817,71 +1852,36 @@ const server = http.createServer(async (req, res) => {
 
     // ── Aulas Experimentais por intervalo (lê a tabela; backfill em bg dos faltantes) ──
     if (req.method === 'GET' && req.url.startsWith('/api/comercial-exp-range?')) {
-      if (!HIST_BASE || !HIST_TOKEN) return send(res, 200, { enabled: false });
+      if (!SCRAPER_URL) return send(res, 200, { enabled: false });
       const q = new URL(req.url, 'http://x').searchParams;
       const from = q.get('from') || '';
       const to   = q.get('to')   || '';
       if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
         return send(res, 400, { error: 'from e to (YYYY-MM-DD, from<=to) obrigatórios' });
       }
-      try {
-        const t = await ensureExpTable();
-        if (!t) return send(res, 200, { enabled: false });
-        // Meses cobertos pelo intervalo (pode cruzar a virada de mês).
-        const months = new Set();
-        {
-          const a = new Date(from + 'T00:00:00'); const b = new Date(to + 'T00:00:00');
-          const d = new Date(a.getFullYear(), a.getMonth(), 1);
-          while (d <= b) { months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); d.setMonth(d.getMonth() + 1); }
-        }
-        const byUnit = {};
-        for (const mth of months) {
-          const { byKey } = await getExpRowsMonth(mth);
-          for (const row of byKey.values()) {
-            if (row.dia < from || row.dia > to) continue;
-            const u = row.unidade;
-            if (!byUnit[u]) byUnit[u] = { agendados: 0, compareceram: 0, faltaram: 0, reagendados: 0, dias: 0, completos: 0 };
-            byUnit[u].agendados    += Number(row.agendados)    || 0;
-            byUnit[u].compareceram += Number(row.compareceram) || 0;
-            byUnit[u].faltaram     += Number(row.faltaram)     || 0;
-            byUnit[u].reagendados  += Number(row.reagendados)  || 0;
-            byUnit[u].dias++;
-            if (row.completo) byUnit[u].completos++;
-          }
-        }
-        // Dispara backfill em BACKGROUND do mês mais recente do intervalo (throttle 10min),
-        // sem bloquear a resposta. Dia passado já gravado é pulado lá dentro (incremental).
-        const curMonth = new Date().toISOString().slice(0, 7);
-        const alvo = [...months].filter(mth => mth <= curMonth).sort();
-        const mth = alvo[alvo.length - 1];
-        if (mth && !expBackfillJob.running && Date.now() - (expSyncGuard.get(mth) || 0) > 10 * 60 * 1000) {
-          expSyncGuard.set(mth, Date.now());
-          expBackfillJob = { running: true, startedAt: Date.now(), month: mth, total: 0, done: 0, unidade: '' };
-          (async () => { try { await syncExpMonth(mth, { job: true }); } catch (e) { console.error('[exp] bg sync', e); } finally { expBackfillJob.running = false; } })();
-        }
-        return send(res, 200, { enabled: true, byUnit, backfilling: expBackfillJob.running });
-      } catch (e) {
-        console.error('[comercial-exp-range]', e);
-        return send(res, 502, { error: 'Falha ao ler aulas experimentais.', detail: String(e?.message || e) });
-      }
+      // Serve do CACHE (scraper). Se não tem cache fresco, dispara scrape em bg e
+      // devolve o que tiver (front re-consulta enquanto backfilling=true).
+      const key = `${from}|${to}`;
+      const cached = EXP_MEM.get(key);
+      const fresh = cached && (Date.now() - cached.at < EXP_MEM_TTL);
+      if (!fresh) kickExpScrape(key, from, to);
+      return send(res, 200, { enabled: true, byUnit: cached?.byUnit || {}, backfilling: expScrapeRunning && !fresh });
     }
 
-    // ── Recalcular aulas experimentais de um mês (sob demanda, com progresso) ──
+    // ── Recalcular (força re-scrape do range, ignorando o cache) ──
     if (req.method === 'POST' && req.url === '/api/comercial-exp-backfill') {
-      if (!HIST_BASE || !HIST_TOKEN) return send(res, 200, { enabled: false });
+      if (!SCRAPER_URL) return send(res, 200, { enabled: false });
       const body = await readBody(req);
-      const month = String(body?.month || new Date().toISOString().slice(0, 7));
-      if (!/^\d{4}-\d{2}$/.test(month)) return send(res, 400, { error: 'month (YYYY-MM) obrigatório' });
-      if (expBackfillJob.running) {
-        return send(res, 200, { ok: true, started: false, jaRodando: true, month: expBackfillJob.month, total: expBackfillJob.total, done: expBackfillJob.done });
+      const from = String(body?.from || '');
+      const to   = String(body?.to   || from);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        EXP_MEM.delete(`${from}|${to}`);
+        kickExpScrape(`${from}|${to}`, from, to);
       }
-      expSyncGuard.set(month, Date.now());
-      expBackfillJob = { running: true, startedAt: Date.now(), month, total: 0, done: 0, unidade: '' };
-      (async () => { try { await syncExpMonth(month, { job: true, force: !!body?.force }); } catch (e) { console.error('[exp] backfill', e); } finally { expBackfillJob.running = false; } })();
-      return send(res, 200, { ok: true, started: true, month });
+      return send(res, 200, { ok: true, started: true, running: expScrapeRunning });
     }
     if (req.method === 'GET' && req.url === '/api/comercial-exp-backfill/status') {
-      return send(res, 200, { running: expBackfillJob.running, month: expBackfillJob.month, total: expBackfillJob.total, done: expBackfillJob.done, unidade: expBackfillJob.unidade });
+      return send(res, 200, { running: expScrapeRunning });
     }
 
     // ── Debug do mapeamento da tabela histórica de vendas (conferir colunas) ──
