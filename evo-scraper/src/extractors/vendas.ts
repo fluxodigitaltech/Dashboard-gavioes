@@ -13,13 +13,22 @@ import { logger } from '../lib/logger.js';
 
 const SSO = 'https://evo3.w12app.com.br/Login/LogarEvo3';
 const LISTAR = 'https://evo3.w12app.com.br/Gerencial/Vendas/listarVendas';
+// Base ativa por plano (Gerencial › Contratos). Mesmo host/origin do listarVendas,
+// então roda de dentro do MESMO iframe evo3 (reusa a sessão + anti-forgery).
+const CONTRATOS = 'https://evo3.w12app.com.br/Gerencial/Contratos/listarClientesContratosApenasQuantidade';
+
+export interface PlanoBase { plano: string; qtde: number; }
 
 export interface VendasResult {
   valorMes: number | null;            // soma VALOR_VENDA do mês (AggregateResults[0].Value)
   qtdMes: number | null;              // qtd de vendas (Total)
   valorMesAnterior: number | null;
   qtdMesAnterior: number | null;
+  planosBase: PlanoBase[];            // base ativa agrupada por plano (Termômetro de Planos)
 }
+
+interface ContratoRow { DS_CONTRATO?: string; QTDE?: number; }
+interface ContratosResp { Data?: ContratoRow[]; Total?: number; }
 
 /** DD/MM/YYYY */
 function ddmmyyyy(d: Date) {
@@ -159,10 +168,40 @@ export async function extractVendas(client: EvoClient, ref = new Date()): Promis
   const prev = await callVendas(prevIni, prevFim);
 
   logger.info({ qtd: cur.Total, valor: parseValorVenda(cur) }, 'vendas extraídas (evo3)');
+
+  // Base ativa por plano — mesmo iframe/sessão. Falha aqui NÃO derruba as vendas.
+  const planosBase = await (async (): Promise<PlanoBase[]> => {
+    try {
+      let body = new URLSearchParams({ sort: '', page: '1', pageSize: '200', group: '', filter: '' }).toString();
+      if (antiforgery) body += `&__RequestVerificationToken=${encodeURIComponent(antiforgery)}`;
+      const res = await frame!.evaluate(async ({ url, body }) => {
+        const r = await fetch(url, {
+          method: 'POST', credentials: 'include',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+          },
+          body,
+        });
+        return { status: r.status, text: await r.text() };
+      }, { url: CONTRATOS, body });
+      if (res.status !== 200) { logger.warn({ status: res.status, body: res.text.slice(0, 150) }, 'contratos: HTTP != 200'); return []; }
+      const json = JSON.parse(res.text) as ContratosResp;
+      const data = Array.isArray(json?.Data) ? json.Data : [];
+      const out = data
+        .map(d => ({ plano: String(d?.DS_CONTRATO ?? '').trim() || 'Sem plano', qtde: Number(d?.QTDE) || 0 }))
+        .filter(p => p.qtde > 0);
+      logger.info({ planos: out.length, base: out.reduce((s, p) => s + p.qtde, 0) }, 'contratos extraídos (evo3)');
+      return out;
+    } catch (e) { logger.warn({ err: (e as Error).message }, 'contratos: exceção'); return []; }
+  })();
+
   return {
     valorMes: parseValorVenda(cur),
     qtdMes: cur.Total ?? null,
     valorMesAnterior: parseValorVenda(prev),
     qtdMesAnterior: prev.Total ?? null,
+    planosBase,
   };
 }
