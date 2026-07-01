@@ -17,7 +17,7 @@ import { enqueueSync, getJob, listRecentJobs, lastSuccessfulJob } from './jobs.j
 import { getLatestSnapshot, getBranchSnapshot } from './storage.js';
 import { ensureAuthenticated } from './auth.js';
 import { createEvoClient } from './evoClient.js';
-import { extractExperimentais } from './extractors/experimentais.js';
+import { extractExperimentais, debugExperimentais } from './extractors/experimentais.js';
 
 export function makeApp() {
   const app = express();
@@ -102,8 +102,13 @@ export function makeApp() {
       const auth = await ensureAuthenticated();
       context = auth.context;
       const client = await createEvoClient(auth.page);
-      const r = await extractExperimentais(client, from, to);
-      res.json({ unidade: 'Gaviões', from, to, ...r });
+      if (String(req.query.raw ?? '') === '1') {
+        const dbg = await debugExperimentais(client, from, to);
+        res.json({ debug: true, from, to, ...(dbg as object) });
+      } else {
+        const r = await extractExperimentais(client, from, to);
+        res.json({ unidade: 'Gaviões', from, to, ...r });
+      }
     } catch (e) {
       logger.error({ err: (e as Error).message, from, to }, 'exp scrape failed');
       res.status(502).json({ error: (e as Error).message });

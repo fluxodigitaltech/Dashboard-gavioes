@@ -42,6 +42,28 @@ function rangeBody(from: string, to: string) {
 interface GerRow { dataAtividade?: string; statusAluno?: number | string; dataPresenca?: string | null; idFilial?: number | string; }
 interface GerResp { resultados?: GerRow[]; totalAulasAgendadas?: number; totalPresencas?: number; totalVendasNovosContratos?: number; }
 
+/** DEBUG: devolve a estrutura crua do endpoint pra descobrir os nomes de campo reais. */
+export async function debugExperimentais(client: EvoClient, from: string, to: string): Promise<unknown> {
+  const raw = await client.post<Record<string, unknown>>(`${GERENCIAL}${PATH}`, rangeBody(from, to));
+  const topKeys = raw && typeof raw === 'object' ? Object.keys(raw) : [];
+  // Acha o 1º array grande dentro da resposta (a "lista" de agendamentos, sob qualquer nome).
+  let arrKey: string | null = null; let arr: unknown[] = [];
+  for (const k of topKeys) {
+    const v = (raw as Record<string, unknown>)[k];
+    if (Array.isArray(v) && v.length > arr.length) { arr = v; arrKey = k; }
+  }
+  const numeric: Record<string, unknown> = {};
+  for (const k of topKeys) { const v = (raw as Record<string, unknown>)[k]; if (typeof v === 'number') numeric[k] = v; }
+  return {
+    topKeys,
+    numericFields: numeric,
+    arrayKey: arrKey,
+    arrayLen: arr.length,
+    sampleRowKeys: arr[0] && typeof arr[0] === 'object' ? Object.keys(arr[0] as object) : null,
+    sampleRow: arr[0] ?? null,
+  };
+}
+
 /**
  * Raspa as aulas experimentais da unidade logada (filial 59) no intervalo [from,to]
  * e bucketiza por dia. Regra de contagem espelha o painel do EVO (Goodbe):
