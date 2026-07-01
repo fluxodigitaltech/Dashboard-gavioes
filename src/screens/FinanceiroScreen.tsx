@@ -266,6 +266,9 @@ export function FinanceiroScreen({ data, isLoading }: Props) {
   // Mês passado filtrado: cruzamento ao vivo não existe → pagantes distintos
   // do histórico de Recebimentos do mês selecionado.
   if (isHistMode) qtdAtivosQuePagaram = recSel?.pagantes ?? 0;
+  // Modo scraper (Gaviões): "Já Pagaram" = nº de cobranças APROVADAS na semana (Cobranças › Extrato).
+  const isScraperPagos = units.some(u => u.jaPagaramQtd != null);
+  if (isScraperPagos) qtdAtivosQuePagaram = units.reduce((s, u) => s + (u.jaPagaramQtd ?? 0), 0);
   const basePagos = isHistMode ? activeMembers : idsAtivos.size;
   const pctPagos = basePagos > 0 ? (qtdAtivosQuePagaram / basePagos) * 100 : 0;
   const pagosLines = fmtComparativosLines(
@@ -278,9 +281,9 @@ export function FinanceiroScreen({ data, isLoading }: Props) {
 
   // ── Cor dinâmica para o card "Já Pagaram" (verde / âmbar / rosa) ──
   const pagosColorIcon: 'accent' | 'amber' | 'rose' =
-    pctPagos >= 80 ? 'accent' : pctPagos >= 50 ? 'amber' : 'rose';
+    isScraperPagos ? 'accent' : pctPagos >= 80 ? 'accent' : pctPagos >= 50 ? 'amber' : 'rose';
   const pagosColorText =
-    pctPagos >= 80 ? 'text-emerald-600' : pctPagos >= 50 ? 'text-amber-600' : 'text-rose-600';
+    isScraperPagos ? 'text-emerald-600' : pctPagos >= 80 ? 'text-emerald-600' : pctPagos >= 50 ? 'text-amber-600' : 'text-rose-600';
 
   // Total bruto de planos (pra mensagem de empty state se nenhum tiver preço).
   // Filtrado pelas allowed_units do user — viewer não vê quantos planos as
@@ -504,10 +507,10 @@ export function FinanceiroScreen({ data, isLoading }: Props) {
         })()}
         <StatsCard
           title="Já Pagaram"
-          value={(isHistMode ? !recSel : (isLoading || receivablesLoading)) ? '—' : `${formatNumber(qtdAtivosQuePagaram)}${basePagos > 0 ? ` (${pctPagos.toFixed(2).replace('.', ',')}%)` : ''}`}
-          comparison={(isHistMode ? !recSel : (isLoading || receivablesLoading)) ? '…' : basePagos > 0
+          value={isScraperPagos ? formatNumber(qtdAtivosQuePagaram) : ((isHistMode ? !recSel : (isLoading || receivablesLoading)) ? '—' : `${formatNumber(qtdAtivosQuePagaram)}${basePagos > 0 ? ` (${pctPagos.toFixed(2).replace('.', ',')}%)` : ''}`)}
+          comparison={isScraperPagos ? 'aprovadas na semana · Cobranças › Extrato' : ((isHistMode ? !recSel : (isLoading || receivablesLoading)) ? '…' : basePagos > 0
             ? `de ${formatNumber(basePagos)} ativos · ${isHistMode ? 'pagantes distintos no mês (histórico)' : 'IdCliente member ∩ receivable'}`
-            : '⚠ pagantes do histórico · sem Membros do mês pra calcular %'}
+            : '⚠ pagantes do histórico · sem Membros do mês pra calcular %')}
           subComparison={pagosLines.mes ?? 'Sem comparativo histórico ainda'}
           subComparison2={pagosLines.ano}
           icon={TrendingUp}

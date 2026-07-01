@@ -251,6 +251,9 @@ export interface BranchStats {
   // Só preenchidos no modo scraper (Gaviões). FATURAMENTO REAL = pago; ESTIMADO = total.
   faturamentoPagoMes?: number;      // card "Pago" (somatoria.totalPago)
   faturamentoTotalMes?: number;     // card "Total" (somatoria.total)
+  // "Já pagaram" = cobranças com status Aprovado na semana (Extrato). Só modo scraper.
+  jaPagaramQtd?: number | null;
+  jaPagaramValor?: number | null;
 }
 
 /** YYYY-MM-DD da data atual menos N dias. */

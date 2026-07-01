@@ -14,6 +14,8 @@ const GER = 'https://evo-abc-api-gerencial.w12app.com.br';
 // Faturamento = aba Recorrência (cobranças recorrentes), filtro "Data programada".
 // O card "Pago" (somatoria.totalPago) é o faturamento efetivo do mês.
 const COB = `${API}/api/v1/cobrancas/obterCobrancasRecorrencia`;
+// "Já pagaram" = Cobranças › Extrato, status Aprovado (1), filtro por data da tentativa (semana Dom→Sáb).
+const EXTRATO = `${API}/api/v1/cobrancas/obterCobrancasExtrato`;
 
 /** Início/fim do mês em ISO UTC = meia-noite BRT (T03:00:00.000Z), igual a SPA manda. */
 function mesRangeISO(year: number, month1: number) {
@@ -36,6 +38,31 @@ function cobBody(de: string, ate: string) {
     tentativas: '', tipoRecusa: null, valorOriginal: '',
   };
 }
+
+/** Semana atual Dom→Sáb em ISO (o Extrato filtra por data da tentativa). */
+function semanaISO(ref: Date) {
+  const dow = ref.getDay(); // 0=Dom
+  const sun = new Date(ref); sun.setDate(ref.getDate() - dow);
+  const sat = new Date(sun); sat.setDate(sun.getDate() + 6);
+  const p = (n: number) => String(n).padStart(2, '0');
+  const ymd = (d: Date) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return { de: `${ymd(sun)}T00:00:00.000Z`, ate: `${ymd(sat)}T23:59:59.999Z` };
+}
+
+/** Corpo do obterCobrancasExtrato — status=1 (Aprovado), filtro por dtTentativa. */
+function extratoBody(de: string, ate: string) {
+  return {
+    skip: 0, take: 1, ordem: 'dtTentativa', ordemDirecao: 'asc',
+    dsAdquirente: null, dsBandeira: null,
+    dtCobrancaAte: null, dtCobrancaDe: null,
+    dtPrevisaoCobrancaAte: null, dtPrevisaoCobrancaDe: null,
+    dtTentativaAte: ate, dtTentativaDe: de,
+    idsTipoOrigem: null, motivoRecusa: null,
+    status: 1, tipoRecusa: null, valor: null,
+  };
+}
+
+interface ExtratoResp { somatorias?: { totalItens?: number; totalCobrado?: number } }
 
 interface CobrancasResp {
   somatoria?: {
@@ -84,6 +111,9 @@ export interface GerencialSnapshot {
   faturamentoTentativasExcedidas: number | null;// card "Tentativas excedidas"
   faturamentoProgramado: number | null;         // card "Programadas"
   faturamentoTotal: number | null;              // card "Total"
+  // "Já pagaram" — Cobranças › Extrato, status Aprovado, semana atual (Dom→Sáb).
+  jaPagaramQtd: number | null;                  // somatorias.totalItens (qtd de aprovadas)
+  jaPagaramValor: number | null;                // somatorias.totalCobrado
   // Vendas (EVO3, Gerencial › Vendas detalhadas), filtro DT_VENDA do mês.
   vendasValor: number | null;                   // soma VALOR_VENDA do mês
   vendasQtd: number | null;                     // qtd de vendas (Total)
@@ -166,6 +196,12 @@ export async function extractGerencial(client: EvoClient, ref = new Date()): Pro
   if (cobPrev) raw['cobrancas-recorrencia-mes-anterior'] = cobPrev.somatoria;
   const som = cobMes?.somatoria;
 
+  // ── "Já pagaram" (Cobranças › Extrato, status Aprovado, semana atual) ────────
+  const sem = semanaISO(ref);
+  const extrato = await safe<ExtratoResp>('cobrancas-extrato-aprovado',
+    () => client.post<ExtratoResp>(EXTRATO, extratoBody(sem.de, sem.ate)), erros);
+  if (extrato) raw['cobrancas-extrato-aprovado'] = extrato.somatorias;
+
   // ── Vendas (EVO3) — POR ÚLTIMO: faz SSO e move a página pra origin evo3 ──────
   const vendas = await safe('vendas', () => extractVendas(client, ref), erros);
 
@@ -191,6 +227,8 @@ export async function extractGerencial(client: EvoClient, ref = new Date()): Pro
     faturamentoTentativasExcedidas: som?.tentativasExcedidas ?? null,
     faturamentoProgramado: som?.programadas ?? null,
     faturamentoTotal: som?.total ?? null,
+    jaPagaramQtd: extrato?.somatorias?.totalItens ?? null,
+    jaPagaramValor: extrato?.somatorias?.totalCobrado ?? null,
     vendasValor: vendas?.valorMes ?? null,
     vendasQtd: vendas?.qtdMes ?? null,
     vendasValorMesAnterior: vendas?.valorMesAnterior ?? null,
