@@ -998,6 +998,20 @@ let expEnsureInflight = null;
 const expSyncGuard = new Map();   // month → timestamp do último backfill disparado
 let expBackfillJob = { running: false, startedAt: 0, month: '', total: 0, done: 0, unidade: '' };
 
+// ── Ponte com o evo-scraper ──────────────────────────────────────────────────
+// A Gaviões NÃO tem API de integração pra aulas experimentais — a fonte é o
+// scraper (loga no painel EVO5 e devolve as experimentais por dia). O server só
+// repassa (Bearer) e cacheia no NocoDB. Aceita SCRAPER_UPSTREAM (nome usado no
+// ambiente da Gaviões) ou SCRAPER_URL.
+const SCRAPER_URL   = (process.env.SCRAPER_UPSTREAM || process.env.SCRAPER_URL || '').replace(/\/+$/, '');
+const SCRAPER_TOKEN = process.env.SCRAPER_TOKEN || '';
+async function scraperFetch(path) {
+  if (!SCRAPER_URL || !SCRAPER_TOKEN) return null;
+  const r = await fetchComTimeout(`${SCRAPER_URL}${path}`, { headers: { Authorization: `Bearer ${SCRAPER_TOKEN}` } }, 90_000);
+  if (!r.ok) throw new Error(`scraper respondeu ${r.status}`);
+  return r.json();
+}
+
 async function ensureExpTable() {
   if (EXP_TABLE) return EXP_TABLE;
   if (!HIST_BASE || !HIST_TOKEN || !NOCODB_BASE_ID) return '';
@@ -1103,48 +1117,47 @@ async function getExpRowsMonth(month) {
   return { table: t, byKey };
 }
 
-// Varre o mês (incremental) e grava no NocoDB. force=true re-escaneia tudo.
+// Sincroniza o mês via SCRAPER (painel EVO5) e grava no NocoDB. O scraper é
+// range-native: UMA chamada cobre o mês inteiro (loga no painel, conta agendados/
+// compareceram/faltaram por dia). Substitui a varredura por-dia da API de
+// integração — que a Gaviões NÃO tem. (unidade única: "Gaviões", filial 59.)
 async function syncExpMonth(month, opts = {}) {
-  const force = !!opts.force;
   const t = await ensureExpTable();
   if (!t) return { ok: false, reason: 'sem-tabela' };
+  if (!SCRAPER_URL) return { ok: false, reason: 'sem-scraper' };
   const [y, m] = month.split('-').map(Number);
   const ult = new Date(y, m, 0).getDate();
-  const hojeISO = new Date().toISOString().slice(0, 10);
-  // Varre o MÊS INTEIRO, inclusive dias FUTUROS — quem já reservou aula
-  // experimental pra frente conta como "agendado". Dia PASSADO e completo fica
-  // cacheado; HOJE e dias FUTUROS são SEMPRE re-escaneados (ainda mudam: entram
-  // reservas novas e, ao chegar o dia, vira presença/falta).
-  const dias = [];
-  for (let d = 1; d <= ult; d++) dias.push(`${month}-${String(d).padStart(2, '0')}`);
-  const { byKey } = await getExpRowsMonth(month);
-  const entries = Object.entries(EVO_UNIT_TOKENS()).filter(([, tk]) => !!tk);
-  const precisaScan = (unidade, dia) => {
-    const row = byKey.get(`${unidade}|${dia}`);
-    return force || !row || !row.completo || dia >= hojeISO; // hoje + futuros sempre re-escaneiam
-  };
-  let total = 0;
-  for (const [unidade] of entries) for (const dia of dias) if (precisaScan(unidade, dia)) total++;
-  if (opts.job) { expBackfillJob.total = total; expBackfillJob.done = 0; }
-  let done = 0;
-  for (const [unidade, token] of entries) {
-    for (const dia of dias) {
-      if (!precisaScan(unidade, dia)) continue;
-      if (opts.job) expBackfillJob.unidade = `${unidade} · ${dia}`;
-      const res = await scanExpDiaUnidade(unidade, token, dia);
-      if (res) {
-        const row = byKey.get(`${unidade}|${dia}`);
-        const payload = { unidade, dia, month, agendados: res.agendados, compareceram: res.compareceram, faltaram: res.faltaram, reagendados: res.reagendados, completo: res.completo, scanned_at: new Date().toISOString() };
-        try {
-          if (row?.Id) await fetch(`${HIST_BASE}/tables/${t}/records`, { method: 'PATCH', headers: leadsHeaders(), body: JSON.stringify({ Id: row.Id, ...payload }) });
-          else { const ins = await fetch(`${HIST_BASE}/tables/${t}/records`, { method: 'POST', headers: leadsHeaders(), body: JSON.stringify(payload) }).then(x => x.json()).catch(() => null); if (ins?.Id) byKey.set(`${unidade}|${dia}`, { Id: ins.Id, ...payload }); }
-        } catch (e) { console.warn(`[exp] gravar ${unidade} ${dia} falhou:`, e?.message || e); }
-      }
-      done++;
-      if (opts.job) expBackfillJob.done = done;
-    }
+  const from = `${month}-01`;
+  const to   = `${month}-${String(ult).padStart(2, '0')}`;
+  let data;
+  try {
+    data = await scraperFetch(`/exp?from=${from}&to=${to}`);
+  } catch (e) {
+    console.warn('[exp] scraper falhou:', e?.message || e);
+    return { ok: false, reason: 'scraper-erro' };
   }
-  console.log(`[exp] ${month}: ${done} unidade-dias escaneados`);
+  const byDay = (data && data.byDay) || {};
+  const unidade = 'Gaviões';
+  const { byKey } = await getExpRowsMonth(month);
+  const dias = Object.keys(byDay).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  if (opts.job) { expBackfillJob.total = dias.length; expBackfillJob.done = 0; }
+  let done = 0;
+  for (const dia of dias) {
+    const d = byDay[dia] || {};
+    if (opts.job) expBackfillJob.unidade = `${unidade} · ${dia}`;
+    const row = byKey.get(`${unidade}|${dia}`);
+    const payload = { unidade, dia, month,
+      agendados: Number(d.agendados) || 0, compareceram: Number(d.compareceram) || 0,
+      faltaram: Number(d.faltaram) || 0, reagendados: Number(d.reagendados) || 0,
+      completo: true, scanned_at: new Date().toISOString() };
+    try {
+      if (row?.Id) await fetch(`${HIST_BASE}/tables/${t}/records`, { method: 'PATCH', headers: leadsHeaders(), body: JSON.stringify({ Id: row.Id, ...payload }) });
+      else { const ins = await fetch(`${HIST_BASE}/tables/${t}/records`, { method: 'POST', headers: leadsHeaders(), body: JSON.stringify(payload) }).then(x => x.json()).catch(() => null); if (ins?.Id) byKey.set(`${unidade}|${dia}`, { Id: ins.Id, ...payload }); }
+    } catch (e) { console.warn(`[exp] gravar ${unidade} ${dia} falhou:`, e?.message || e); }
+    done++;
+    if (opts.job) expBackfillJob.done = done;
+  }
+  console.log(`[exp] ${month}: ${done} dias gravados (via scraper)`);
   return { ok: true, dias: dias.length, escaneados: done };
 }
 
