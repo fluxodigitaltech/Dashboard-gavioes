@@ -91,7 +91,6 @@ const ALL_NAV_ITEMS: { id: Page; label: string; adminOnly?: boolean }[] = [
   { id: 'unidades',       label: 'Unidades' },
   { id: 'planos',         label: 'Planos' },
   { id: 'financeiro',     label: 'Financeiro' },
-  { id: 'metas',          label: 'Metas' },
   { id: 'campanhas',      label: 'Marketing' },
   { id: 'leads',          label: 'Leads' },
   { id: 'comercial',      label: 'Comercial' },
