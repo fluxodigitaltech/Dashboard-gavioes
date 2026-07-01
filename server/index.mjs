@@ -20,8 +20,8 @@ import nodemailer from 'nodemailer';
 const PORT = Number(process.env.INVITE_PORT || 3001);
 
 // ── NocoDB (mesma tabela do front) ───────────────────────────────────────────
-const NOCO_BASE  = process.env.NOCODB_BASE   || 'https://app.nocodb.com/api/v2';
-const NOCO_TABLE = process.env.NOCODB_USERS_TABLE || 'mkq4uec7wcr07vx';
+const NOCO_BASE  = process.env.NOCODB_BASE   || 'https://outros-sistemas-nocodb.r3k7br.easypanel.host/api/v2';
+const NOCO_TABLE = process.env.NOCODB_USERS_TABLE || 'm5gvxov7n0eah6o';
 const NOCO_TOKEN = process.env.NOCODB_TOKEN || process.env.VITE_NOCODB_TOKEN || '';
 
 // ── E-mail (nomes de env iguais aos que o usuário já usa) ─────────────────────
