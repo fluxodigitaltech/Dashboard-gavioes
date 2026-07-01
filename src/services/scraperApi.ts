@@ -38,6 +38,8 @@ interface ScraperSnapshot {
   vendasQtd: number | null;
   vendasValorMesAnterior: number | null;
   vendasQtdMesAnterior: number | null;
+  jaPagaramQtd?: number | null;                     // Extrato aprovado na semana (qtd)
+  jaPagaramValor?: number | null;                   // Extrato aprovado na semana (valor)
   planosBase?: { plano: string; qtde: number }[];   // base ativa por plano (Termômetro)
   erros: string[];
 }
@@ -104,6 +106,9 @@ function toBranchStats(s: ScraperSnapshot): BranchStats {
     // Faturamento (Recorrência): REAL = Pago, ESTIMADO = Total
     faturamentoPagoMes: s.faturamentoPago ?? 0,
     faturamentoTotalMes: s.faturamentoTotal ?? 0,
+    // "Já pagaram" = cobranças aprovadas na semana (Extrato)
+    jaPagaramQtd: s.jaPagaramQtd ?? null,
+    jaPagaramValor: s.jaPagaramValor ?? null,
   };
 }
 
