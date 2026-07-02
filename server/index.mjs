@@ -1472,7 +1472,9 @@ const server = http.createServer(async (req, res) => {
       // Monta a URL do Graph conforme o recurso pedido.
       let graphUrl = null;
       if (path === 'adaccounts') {
-        graphUrl = `${META_GRAPH}/me/adaccounts?fields=name,account_id`;
+        // limit=200: sem isso a Graph pagina em 25 e contas do fim da lista (ex.:
+        // "01 - Gaviões Paraíso", a ~70ª) não vêm → não dá pra selecionar no dash.
+        graphUrl = `${META_GRAPH}/me/adaccounts?fields=name,account_id&limit=200`;
       } else if (path === 'campaigns' && accountOk) {
         graphUrl = `${META_GRAPH}/${account}/campaigns?fields=name,status,objective`;
       } else if (path === 'insights' && accountOk) {
