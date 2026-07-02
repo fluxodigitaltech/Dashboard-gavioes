@@ -75,8 +75,13 @@ export function CampanhasScreen({ data }: Props) {
       const accounts = await fetchAdAccounts();
       setAdAccounts(accounts);
       if (accounts.length > 0) {
-        setSelectedAccount(accounts[0].id);
-        loadCampaigns(accounts[0].id, dateFrom, dateTo);
+        // Gaviões: prefere a conta da unidade (ou a última escolhida), não a 1ª da lista.
+        const saved = localStorage.getItem('gb_meta_account');
+        const preferred = accounts.find(a => a.id === saved)
+          || accounts.find(a => a.id === 'act_2033147407575965') // 01 - Gaviões Paraíso
+          || accounts[0];
+        setSelectedAccount(preferred.id);
+        loadCampaigns(preferred.id, dateFrom, dateTo);
       }
     } catch (err: unknown) {
       setError(errorMessage(err, 'Erro ao carregar contas de anúncios'));
@@ -236,6 +241,7 @@ export function CampanhasScreen({ data }: Props) {
                     value={selectedAccount}
                     onChange={(e) => {
                       setSelectedAccount(e.target.value);
+                      localStorage.setItem('gb_meta_account', e.target.value);
                       loadCampaigns(e.target.value);
                     }}
                     className="bg-transparent text-[13px] font-black text-primary px-4 py-2 focus:outline-none min-w-[200px]"
