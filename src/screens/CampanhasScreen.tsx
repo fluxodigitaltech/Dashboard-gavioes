@@ -75,10 +75,12 @@ export function CampanhasScreen({ data }: Props) {
       const accounts = await fetchAdAccounts();
       setAdAccounts(accounts);
       if (accounts.length > 0) {
-        // Gaviões: prefere a conta da unidade (ou a última escolhida), não a 1ª da lista.
+        // Gaviões: a conta da unidade é SEMPRE o padrão ao abrir a tela — assim
+        // um 'gb_meta_account' antigo/errado no localStorage não trava a tela em
+        // conta vazia. A conta salva só vale como fallback se a da unidade sumir.
         const saved = localStorage.getItem('gb_meta_account');
-        const preferred = accounts.find(a => a.id === saved)
-          || accounts.find(a => a.id === 'act_2033147407575965') // 01 - Gaviões Paraíso
+        const preferred = accounts.find(a => a.id === 'act_2033147407575965') // 01 - Gaviões Paraíso
+          || accounts.find(a => a.id === saved)
           || accounts[0];
         setSelectedAccount(preferred.id);
         loadCampaigns(preferred.id, dateFrom, dateTo);
