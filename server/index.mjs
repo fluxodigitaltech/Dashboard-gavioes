@@ -96,6 +96,12 @@ let SNAP_TABLE = process.env.NOCODB_SNAPSHOT_TABLE || '';
 // Aceita META_ACCESS_TOKEN ou o nome legado VITE_META_ACCESS_TOKEN.
 const META_GRAPH = 'https://graph.facebook.com/v19.0';
 const META_TOKEN = process.env.META_ACCESS_TOKEN || process.env.VITE_META_ACCESS_TOKEN || '';
+// Cache em memória das respostas da Meta. A conta da Gaviões tem ~70 ad accounts,
+// então /me/adaccounts é pesado e às vezes estoura o timeout no load da página →
+// a tela ficava sem contas e não carregava campanha. Com cache (e servindo cópia
+// antiga quando a Meta falha), a tela abre rápido e nunca volta vazia.
+const metaCache = new Map(); // key: graphUrl (sem token) → { data, at }
+const META_TTL = { adaccounts: 600_000, campaigns: 90_000, insights: 90_000, spend: 90_000 };
 const LEADS_SECRET = process.env.LEADS_WEBHOOK_SECRET || '';
 // Pull sob demanda (seção 6 do handoff): busca o relatório direto na API do
 // Fluxo — pra trazer dados AGORA sem esperar o webhook das 06:10, e pra
@@ -1488,15 +1494,25 @@ const server = http.createServer(async (req, res) => {
         graphUrl = `${META_GRAPH}/${account}/insights?fields=spend&date_preset=last_30d`;
       }
       if (!graphUrl) return send(res, 400, { error: 'Recurso Meta inválido ou account ausente (act_<id>).' });
+      const cacheKey = graphUrl;                       // já inclui path + account + datas (sem o token)
+      const ttl = META_TTL[path] ?? 90_000;
+      const cached = metaCache.get(cacheKey);
+      if (cached && (Date.now() - cached.at) < ttl) {
+        return send(res, 200, cached.data);            // cache-hit fresco → instantâneo
+      }
       try {
         const r = await fetchComTimeout(`${graphUrl}&access_token=${encodeURIComponent(META_TOKEN)}`, {}, 20_000);
         const j = await r.json().catch(() => ({}));
         if (!r.ok) {
-          // Repassa a mensagem do Graph (ex.: token inválido) pro front mostrar.
+          // Se a Meta falhou mas temos uma cópia antiga, serve ela (melhor que vazio).
+          if (cached) return send(res, 200, cached.data);
           return send(res, r.status, { error: j?.error?.message || `Meta API ${r.status}`, data: [] });
         }
+        metaCache.set(cacheKey, { data: j, at: Date.now() });
         return send(res, 200, j);
       } catch (e) {
+        // Timeout/erro de rede: serve a cópia em cache se existir (o caso da Gaviões).
+        if (cached) return send(res, 200, cached.data);
         return send(res, 502, { error: `Falha ao chamar a Meta: ${String(e?.message || e)}`, data: [] });
       }
     }
@@ -2090,3 +2106,24 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => console.log(`[invite-server] ouvindo na porta ${PORT} · from=${MAIL_FROM} · noco=${!!NOCO_TOKEN}`));
+
+// Aquece o cache de ad accounts no boot (a Gaviões tem ~70 → chamada pesada).
+// Assim o cache já está quente antes do primeiro usuário abrir o Marketing.
+async function warmMetaAdAccounts() {
+  if (!META_TOKEN) return;
+  const url = `${META_GRAPH}/me/adaccounts?fields=name,account_id&limit=200`;
+  try {
+    const r = await fetchComTimeout(`${url}&access_token=${encodeURIComponent(META_TOKEN)}`, {}, 25_000);
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && Array.isArray(j?.data)) {
+      metaCache.set(url, { data: j, at: Date.now() });
+      console.log(`[meta] cache aquecido: ${j.data.length} ad accounts`);
+    } else {
+      console.log('[meta] warm-up adaccounts falhou (segue sem cache):', j?.error?.message || r.status);
+    }
+  } catch (e) {
+    console.log('[meta] warm-up adaccounts erro:', String(e?.message || e));
+  }
+}
+warmMetaAdAccounts();
+setInterval(warmMetaAdAccounts, 9 * 60_000); // reaquece a cada 9 min (TTL do adaccounts é 10 min)
