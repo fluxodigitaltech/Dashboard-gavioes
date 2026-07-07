@@ -18,6 +18,7 @@ import { getLatestSnapshot, getBranchSnapshot } from './storage.js';
 import { ensureAuthenticated } from './auth.js';
 import { createEvoClient } from './evoClient.js';
 import { extractExperimentais } from './extractors/experimentais.js';
+import { agregadoresCheckinsRange } from './extractors/gerencial.js';
 
 export function makeApp() {
   const app = express();
@@ -106,6 +107,32 @@ export function makeApp() {
       res.json({ unidade: 'Gaviões', from, to, ...r });
     } catch (e) {
       logger.error({ err: (e as Error).message, from, to }, 'exp scrape failed');
+      res.status(502).json({ error: (e as Error).message });
+    } finally {
+      if (context) await context.close().catch(() => {});
+    }
+  });
+
+  // Check-ins por agregador (Wellhub/Totalpass/Gurupass/GoGood) no intervalo
+  // [from,to] — fonte da tela de Agregadores quando se filtra por período.
+  // GET /agregadores/checkins?from=YYYY-MM-DD&to=YYYY-MM-DD (to opcional=from).
+  app.get('/agregadores/checkins', requireBearer, async (req, res) => {
+    const from = String(req.query.from ?? '');
+    const to   = String(req.query.to ?? from) || from;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+      return res.status(400).json({ error: 'from/to no formato YYYY-MM-DD, from <= to' });
+    }
+    let context;
+    try {
+      const auth = await ensureAuthenticated();
+      context = auth.context;
+      const client = await createEvoClient(auth.page);
+      const erros: string[] = [];
+      // ISO com T03:00:00.000Z = meia-noite BRT (mesmo formato que a SPA manda).
+      const list = await agregadoresCheckinsRange(client, `${from}T03:00:00.000Z`, `${to}T03:00:00.000Z`, erros);
+      res.json({ unidade: 'Gaviões', from, to, agregadoresCheckins: list, erros });
+    } catch (e) {
+      logger.error({ err: (e as Error).message, from, to }, 'agregadores checkins scrape failed');
       res.status(502).json({ error: (e as Error).message });
     } finally {
       if (context) await context.close().catch(() => {});

@@ -54,6 +54,15 @@ export async function fetchScraperAgregadores(): Promise<AgregadorCheckinScraper
   } catch { return []; }
 }
 
+/** Check-ins por agregador num intervalo custom (on-demand: o scraper loga e conta).
+ *  Mais lento (faz login), use só quando o período difere do mês corrente. */
+export async function fetchScraperAgregadoresRange(from: string, to: string): Promise<AgregadorCheckinScraper[]> {
+  try {
+    const r = await getJson<{ agregadoresCheckins?: AgregadorCheckinScraper[] }>(`/agregadores/checkins?from=${from}&to=${to}`);
+    return r?.agregadoresCheckins ?? [];
+  } catch { return []; }
+}
+
 /** Nome amigável da unidade por idBranch (ajuste conforme as unidades reais). */
 const BRANCH_LABELS: Record<string, { name: string; location: string }> = {
   '59': { name: 'Gaviões', location: '' },

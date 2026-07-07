@@ -94,16 +94,15 @@ export interface AgregadorCheckin { id: number; nome: string; checkins: number; 
 /** Lista os agregadores (Gerencial) e conta os check-ins do MÊS de cada um.
  *  A contagem sai do campo `qtd` do obtercheckin (take=1: só o total importa).
  *  Não é por filial — o endpoint devolve a rede toda (Gaviões = 1 marca). */
-async function extractAgregadoresCheckins(client: EvoClient, ref: Date, erros: string[]): Promise<AgregadorCheckin[]> {
+export async function agregadoresCheckinsRange(client: EvoClient, deISO: string, ateISO: string, erros: string[]): Promise<AgregadorCheckin[]> {
   const lista = await safe<{ id: number; nome: string }[]>('obter-agregadores',
     () => client.get(`${GER}/api/v1/gerencial/obter-agregadores?features=Checkin`), erros);
   if (!Array.isArray(lista) || lista.length === 0) return [];
-  const { de, ate } = mesRangeISO(ref.getFullYear(), ref.getMonth() + 1);
   const out: AgregadorCheckin[] = [];
   for (const ag of lista) {
     const body = {
       Agregador: [ag.id], IdCliente: 0, IdProspect: 0, StatusReserva: null,
-      Skip: 0, Take: 1, DataCheckIn: { inicio: de, fim: ate },
+      Skip: 0, Take: 1, DataCheckIn: { inicio: deISO, fim: ateISO },
       DescricaoProduto: '', FlFiltraTipoPessoa: false, FlFiltrarPorDescricaoProduto: false,
       OrderBy: 'Data desc', TipoPessoas: -1,
     };
@@ -112,6 +111,12 @@ async function extractAgregadoresCheckins(client: EvoClient, ref: Date, erros: s
     out.push({ id: ag.id, nome: ag.nome, checkins: r?.qtd ?? 0 });
   }
   return out;
+}
+
+/** Wrapper do snapshot: mês corrente (1º dia → fim do mês). */
+async function extractAgregadoresCheckins(client: EvoClient, ref: Date, erros: string[]): Promise<AgregadorCheckin[]> {
+  const { de, ate } = mesRangeISO(ref.getFullYear(), ref.getMonth() + 1);
+  return agregadoresCheckinsRange(client, de, ate, erros);
 }
 
 export interface GerencialSnapshot {

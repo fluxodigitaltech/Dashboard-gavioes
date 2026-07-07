@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Save, Trash2, RefreshCw, Activity, TrendingUp, DollarSign, ExternalLink, DownloadCloud } from 'lucide-react';
-import { fetchScraperAgregadores } from '../services/scraperApi';
+import { fetchScraperAgregadores, fetchScraperAgregadoresRange } from '../services/scraperApi';
+import { DateFilterBar, type DateRange } from '../components/DateFilterBar';
+import { localYMD } from '../lib/date';
 
 // Modelo de repasse: cada agregador (Wellhub, Totalpass, Gurupass, GoGood) rende
 // um valor POR CHECK-IN. A contagem de check-ins é puxada manualmente do EVO
@@ -52,32 +54,45 @@ export function AgregadoresScreen() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
 
+  // ── Filtro de período (igual ao das outras telas). Padrão = mês corrente até hoje.
+  const today = localYMD();
+  const firstOfMonth = `${today.slice(0, 7)}-01`;
+  const [range, setRange] = useState<DateRange>({ from: firstOfMonth, to: today });
+  const isCurrent = range.from === firstOfMonth && range.to >= today;
+
   const save = (list: Agregador[]) => {
     localStorage.setItem(LS_KEY, JSON.stringify(list));
     setItems(list);
   };
 
-  // Puxa a contagem de check-ins do mês (por agregador) do scraper e atualiza,
-  // casando pelo evoId. O repasse (R$) e o resto ficam como você configurou.
-  const syncEvo = useCallback(async () => {
-    setSyncing(true); setSyncMsg('');
+  // Puxa a contagem de check-ins por agregador do scraper e atualiza (casa pelo evoId).
+  // Mês corrente = snapshot (rápido). Período custom = on-demand (o scraper loga e conta).
+  const loadCheckins = useCallback(async (r: DateRange) => {
+    const cur = r.from === firstOfMonth && r.to >= today;
+    setSyncing(true); setSyncMsg(cur ? '' : 'Buscando no EVO (pode levar alguns segundos)…');
     try {
-      const remoto = await fetchScraperAgregadores();
-      if (!remoto.length) { setSyncMsg('Sem dados de check-in do EVO ainda (rode um sync no scraper).'); return; }
-      const byId = new Map(remoto.map(r => [r.id, r.checkins]));
+      const remoto = cur ? await fetchScraperAgregadores() : await fetchScraperAgregadoresRange(r.from, r.to);
+      if (!remoto.length) {
+        setSyncMsg(cur ? 'Sem dados de check-in do EVO ainda (rode um sync no scraper).'
+                       : 'Sem check-ins nesse período (ou o scraper demorou/expirou). Tente de novo.');
+        return;
+      }
+      const byId = new Map(remoto.map(x => [x.id, x.checkins]));
       setItems(prev => {
         const updated = prev.map(i => (i.evoId != null && byId.has(i.evoId)) ? { ...i, checkins: byId.get(i.evoId)! } : i);
         localStorage.setItem(LS_KEY, JSON.stringify(updated));
         return updated;
       });
-      const total = remoto.reduce((s, r) => s + (r.checkins || 0), 0);
-      setSyncMsg(`Check-ins do mês atualizados do EVO: ${total.toLocaleString('pt-BR')} no total.`);
-    } catch { setSyncMsg('Falha ao sincronizar com o EVO.'); }
+      const total = remoto.reduce((s, x) => s + (x.checkins || 0), 0);
+      setSyncMsg(`Check-ins ${cur ? 'do mês' : `de ${r.from} a ${r.to}`}: ${total.toLocaleString('pt-BR')} no total.`);
+    } catch { setSyncMsg('Falha ao buscar do EVO.'); }
     finally { setSyncing(false); }
-  }, []);
+  }, [firstOfMonth, today]);
 
-  // Auto-sincroniza ao abrir a tela.
-  useEffect(() => { syncEvo(); }, [syncEvo]);
+  // Carrega ao abrir (mês corrente = snapshot rápido).
+  useEffect(() => { loadCheckins({ from: firstOfMonth, to: today }); }, [loadCheckins, firstOfMonth, today]);
+
+  const onRangeChange = (r: DateRange) => { setRange(r); loadCheckins(r); };
 
   const handleSave = async () => {
     if (!editing) return;
@@ -121,8 +136,8 @@ export function AgregadoresScreen() {
           Agregadores <span className="text-accent">& Receita</span>
         </h1>
         <p className="text-slate-400 text-[16px] font-semibold max-w-2xl">
-          Receita gerada por check-ins de Wellhub, Totalpass, Gurupass e GoGood. Puxe a contagem de check-ins no EVO
-          (Gerencial → Agregadores) e informe aqui — o dash calcula a receita pelo repasse por check-in.
+          Receita gerada por check-ins de Wellhub, Totalpass, Gurupass e GoGood. Os check-ins vêm automáticos do EVO
+          (use o filtro de período) e o dash calcula a receita pelo repasse por check-in que você configurar.
         </p>
       </motion.div>
 
@@ -161,9 +176,17 @@ export function AgregadoresScreen() {
         >
           {UNIDADES.map(u => <option key={u} value={u}>{u === 'Todas' ? 'Todas as Unidades' : u}</option>)}
         </select>
+        <DateFilterBar
+          value={range}
+          onChange={onRangeChange}
+          maxDate={today}
+          isCurrent={isCurrent}
+          onReset={() => onRangeChange({ from: firstOfMonth, to: today })}
+          legend="Check-ins do período (EVO)"
+        />
         <div className="ml-auto flex gap-3">
           <button
-            onClick={syncEvo} disabled={syncing}
+            onClick={() => loadCheckins(range)} disabled={syncing}
             className="flex items-center gap-2 px-5 py-3.5 border border-accent/30 text-accent rounded-2xl text-[13px] font-black uppercase tracking-widest hover:bg-accent/5 transition-all disabled:opacity-50"
           >
             {syncing ? <RefreshCw size={15} className="animate-spin" /> : <DownloadCloud size={15} />} Sincronizar EVO
