@@ -20,6 +20,11 @@ import { createEvoClient } from './evoClient.js';
 import { extractExperimentais } from './extractors/experimentais.js';
 import { agregadoresCheckinsRange } from './extractors/gerencial.js';
 
+// Cache dos check-ins por agregador por período. A 1ª busca de um range faz login
+// (~15-20s); as próximas (mesmo range) vêm instantâneas por até 10 min.
+const agrCache = new Map<string, { data: unknown; at: number }>();
+const AGR_TTL_MS = 10 * 60_000;
+
 export function makeApp() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
@@ -122,6 +127,11 @@ export function makeApp() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
       return res.status(400).json({ error: 'from/to no formato YYYY-MM-DD, from <= to' });
     }
+    const cacheKey = `${from}|${to}`;
+    const cached = agrCache.get(cacheKey);
+    if (cached && (Date.now() - cached.at) < AGR_TTL_MS) {
+      return res.json(cached.data);   // cache-hit → instantâneo
+    }
     let context;
     try {
       const auth = await ensureAuthenticated();
@@ -130,7 +140,9 @@ export function makeApp() {
       const erros: string[] = [];
       // ISO com T03:00:00.000Z = meia-noite BRT (mesmo formato que a SPA manda).
       const list = await agregadoresCheckinsRange(client, `${from}T03:00:00.000Z`, `${to}T03:00:00.000Z`, erros);
-      res.json({ unidade: 'Gaviões', from, to, agregadoresCheckins: list, erros });
+      const payload = { unidade: 'Gaviões', from, to, agregadoresCheckins: list, erros };
+      if (list.length) agrCache.set(cacheKey, { data: payload, at: Date.now() });
+      res.json(payload);
     } catch (e) {
       logger.error({ err: (e as Error).message, from, to }, 'agregadores checkins scrape failed');
       res.status(502).json({ error: (e as Error).message });
