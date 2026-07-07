@@ -41,7 +41,17 @@ interface ScraperSnapshot {
   jaPagaramQtd?: number | null;                     // Extrato aprovado na semana (qtd)
   jaPagaramValor?: number | null;                   // Extrato aprovado na semana (valor)
   planosBase?: { plano: string; qtde: number }[];   // base ativa por plano (Termômetro)
+  agregadoresCheckins?: { id: number; nome: string; checkins: number }[]; // check-ins do mês por agregador
   erros: string[];
+}
+
+/** Check-ins do mês por agregador (Wellhub/Totalpass/Gurupass/GoGood) — tela de Agregadores. */
+export interface AgregadorCheckinScraper { id: number; nome: string; checkins: number; }
+export async function fetchScraperAgregadores(): Promise<AgregadorCheckinScraper[]> {
+  try {
+    const snap = await getJson<ScraperSnapshot>('/data');
+    return snap?.agregadoresCheckins ?? [];
+  } catch { return []; }
 }
 
 /** Nome amigável da unidade por idBranch (ajuste conforme as unidades reais). */

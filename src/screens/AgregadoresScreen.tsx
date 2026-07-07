@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Save, Trash2, RefreshCw, Activity, TrendingUp, DollarSign, ExternalLink } from 'lucide-react';
+import { Plus, Save, Trash2, RefreshCw, Activity, TrendingUp, DollarSign, ExternalLink, DownloadCloud } from 'lucide-react';
+import { fetchScraperAgregadores } from '../services/scraperApi';
 
 // Modelo de repasse: cada agregador (Wellhub, Totalpass, Gurupass, GoGood) rende
 // um valor POR CHECK-IN. A contagem de check-ins é puxada manualmente do EVO
 // (Gerencial → Agregadores) e o dash calcula a receita = check-ins × repasse.
 interface Agregador {
   id: string;
+  evoId?: number;              // id do agregador no EVO (pra casar o sync de check-ins)
   nome: string;
   unidade: string;
   checkins: number;            // check-ins no período (contagem do EVO)
@@ -25,10 +27,10 @@ const UNIDADES = ['Todas', 'Gaviões'];
 
 // Valores de repasse (média por tier — edite conforme o mix real da unidade).
 const SAMPLE: Agregador[] = [
-  { id: 'wellhub',  nome: 'Wellhub (Gympass)', unidade: 'Todas', checkins: 0, repassePorCheckin: 15.50, status: 'ativo', observacao: 'Tiers: Basic+ R$11,03 · Silver R$15,50 · Silver+ R$20,20 · teto ~13/mês · 1º check-in (experimental) sem repasse' },
-  { id: 'totalpass', nome: 'Totalpass',         unidade: 'Todas', checkins: 0, repassePorCheckin: 12.50, status: 'ativo', observacao: 'Tiers: TP1+ R$11,10 · TP2 R$12,50 · TP3 R$15,50 · teto ~13/mês' },
-  { id: 'gurupass', nome: 'Gurupass',           unidade: 'Todas', checkins: 0, repassePorCheckin: 0,     status: 'ativo', observacao: 'Definir valor de repasse por check-in' },
-  { id: 'gogood',   nome: 'GoGood',             unidade: 'Todas', checkins: 0, repassePorCheckin: 0,     status: 'ativo', observacao: 'Definir valor de repasse por check-in' },
+  { id: 'wellhub',  evoId: 1, nome: 'Wellhub (Gympass)', unidade: 'Todas', checkins: 0, repassePorCheckin: 15.50, status: 'ativo', observacao: 'Tiers: Basic+ R$11,03 · Silver R$15,50 · Silver+ R$20,20 · teto ~13/mês · 1º check-in (experimental) sem repasse' },
+  { id: 'totalpass', evoId: 2, nome: 'Totalpass',        unidade: 'Todas', checkins: 0, repassePorCheckin: 12.50, status: 'ativo', observacao: 'Tiers: TP1+ R$11,10 · TP2 R$12,50 · TP3 R$15,50 · teto ~13/mês' },
+  { id: 'gurupass', evoId: 7, nome: 'Gurupass',          unidade: 'Todas', checkins: 0, repassePorCheckin: 0,     status: 'ativo', observacao: 'Definir valor de repasse por check-in' },
+  { id: 'gogood',   evoId: 9, nome: 'GoGood',            unidade: 'Todas', checkins: 0, repassePorCheckin: 0,     status: 'ativo', observacao: 'Definir valor de repasse por check-in' },
 ];
 
 const brl = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -47,10 +49,35 @@ export function AgregadoresScreen() {
   const [isSaving, setIsSaving]     = useState(false);
   const [showForm, setShowForm]     = useState(false);
 
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+
   const save = (list: Agregador[]) => {
     localStorage.setItem(LS_KEY, JSON.stringify(list));
     setItems(list);
   };
+
+  // Puxa a contagem de check-ins do mês (por agregador) do scraper e atualiza,
+  // casando pelo evoId. O repasse (R$) e o resto ficam como você configurou.
+  const syncEvo = useCallback(async () => {
+    setSyncing(true); setSyncMsg('');
+    try {
+      const remoto = await fetchScraperAgregadores();
+      if (!remoto.length) { setSyncMsg('Sem dados de check-in do EVO ainda (rode um sync no scraper).'); return; }
+      const byId = new Map(remoto.map(r => [r.id, r.checkins]));
+      setItems(prev => {
+        const updated = prev.map(i => (i.evoId != null && byId.has(i.evoId)) ? { ...i, checkins: byId.get(i.evoId)! } : i);
+        localStorage.setItem(LS_KEY, JSON.stringify(updated));
+        return updated;
+      });
+      const total = remoto.reduce((s, r) => s + (r.checkins || 0), 0);
+      setSyncMsg(`Check-ins do mês atualizados do EVO: ${total.toLocaleString('pt-BR')} no total.`);
+    } catch { setSyncMsg('Falha ao sincronizar com o EVO.'); }
+    finally { setSyncing(false); }
+  }, []);
+
+  // Auto-sincroniza ao abrir a tela.
+  useEffect(() => { syncEvo(); }, [syncEvo]);
 
   const handleSave = async () => {
     if (!editing) return;
@@ -136,6 +163,12 @@ export function AgregadoresScreen() {
         </select>
         <div className="ml-auto flex gap-3">
           <button
+            onClick={syncEvo} disabled={syncing}
+            className="flex items-center gap-2 px-5 py-3.5 border border-accent/30 text-accent rounded-2xl text-[13px] font-black uppercase tracking-widest hover:bg-accent/5 transition-all disabled:opacity-50"
+          >
+            {syncing ? <RefreshCw size={15} className="animate-spin" /> : <DownloadCloud size={15} />} Sincronizar EVO
+          </button>
+          <button
             onClick={resetPadrao}
             className="flex items-center gap-2 px-5 py-3.5 border border-slate-200 text-slate-500 rounded-2xl text-[13px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"
           >
@@ -149,6 +182,11 @@ export function AgregadoresScreen() {
           </button>
         </div>
       </motion.div>
+
+      {/* Mensagem de sincronização */}
+      {syncMsg && (
+        <p className="text-[12px] font-bold text-slate-400 mb-6 -mt-2">{syncMsg}</p>
+      )}
 
       {/* Table */}
       <motion.div
