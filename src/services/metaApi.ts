@@ -43,9 +43,12 @@ export async function fetchAdAccounts(): Promise<AdAccount[]> {
     if (!response.ok) {
       throw new Error(data.error || `Meta API Error: ${response.status}`);
     }
-    const accounts = (data.data || []).filter((acc: AdAccount) =>
-      acc.name.toLowerCase().includes('gavioes')
-    );
+    // Só as contas da Gaviões (o token tem ~70 contas da carteira toda).
+    // normalize NFD + remove acentos: "01 - Gaviões Paraíso" → "gavioes" casa.
+    // Antes filtrava por 'gavioes' sem tratar o acento (õ) → não achava a conta
+    // e a tela ficava sem campanha nenhuma.
+    const norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '');
+    const accounts = (data.data || []).filter((acc: AdAccount) => norm(acc.name).includes('gavioes'));
     return accounts;
   } catch (error) {
     console.error('Error fetching ad accounts:', error);
